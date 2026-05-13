@@ -400,32 +400,21 @@ with tab1:
     universe = st.session_state.get('_last_universe', [])
 
     if universe:
-        with_opts    = [r for r in universe if r['has_options']]
-        without_opts = [r for r in universe if not r['has_options']]
+        st.markdown(f"**{len(universe)} stocks meet criteria** — click ➕ to add to watchlist · always verify options chain on Webull before trading")
+        st.caption("⚠️ Confirm open interest > 200 and bid/ask spread < 10% on Webull before entering any trade.")
 
-        st.markdown(f"**{len(universe)} stocks meet criteria** — "
-                    f"**{len(with_opts)} have options** ✅ · "
-                    f"**{len(without_opts)} no options** ❌")
-
-        if with_opts:
-            st.markdown("#### ✅ Optionable — Add to Watchlist")
-            for r in with_opts:
-                rc1, rc2, rc3, rc4, rc5, rc6 = st.columns([1, 2, 1, 1, 1, 1])
-                rc1.markdown(f"**{r['symbol']}**")
-                rc2.markdown(f"<small>{r['name'][:28]}</small>", unsafe_allow_html=True)
-                rc3.markdown(f"**${r['price']:.2f}**")
-                rc4.markdown(f"<span style='color:#2ecc71'>+{r['change']:.1f}%</span>", unsafe_allow_html=True)
-                rc5.markdown(f"{r['rel_vol']:.1f}x vol")
-                if rc6.button("➕", key=f"add_uni_{r['symbol']}"):
-                    if r['symbol'] not in st.session_state.watchlist:
-                        st.session_state.watchlist.append(r['symbol'])
-                        st.cache_data.clear()
-                        st.rerun()
-
-        if without_opts:
-            with st.expander(f"❌ {len(without_opts)} stocks with no options (shares only — skip for options trading)"):
-                for r in without_opts:
-                    st.markdown(f"**{r['symbol']}** — ${r['price']:.2f} · +{r['change']:.1f}% · {r['rel_vol']:.1f}x vol · _{r['name']}_")
+        for r in universe:
+            rc1, rc2, rc3, rc4, rc5, rc6 = st.columns([1, 2, 1, 1, 1, 1])
+            rc1.markdown(f"**{r['symbol']}**")
+            rc2.markdown(f"<small>{r['name'][:28]}</small>", unsafe_allow_html=True)
+            rc3.markdown(f"**${r['price']:.2f}**")
+            rc4.markdown(f"<span style='color:#2ecc71'>+{r['change']:.1f}%</span>", unsafe_allow_html=True)
+            rc5.markdown(f"{r['rel_vol']:.1f}x vol")
+            if rc6.button("➕", key=f"add_uni_{r['symbol']}"):
+                if r['symbol'] not in st.session_state.watchlist:
+                    st.session_state.watchlist.append(r['symbol'])
+                    st.cache_data.clear()
+                    st.rerun()
     elif not run_scan:
         st.info("Hit **Scan Universe Now** to find today's optionable movers. Do this each morning after 8:30 AM CT.")
 

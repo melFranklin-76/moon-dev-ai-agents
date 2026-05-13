@@ -177,13 +177,12 @@ def scan_momentum_universe(
             continue
 
         results.append({
-            "symbol":      sym,
-            "name":        q.get("shortName", sym),
-            "price":       price,
-            "change":      change,
-            "volume":      volume,
-            "rel_vol":     rel_vol,
-            "has_options": _has_options(sym),
+            "symbol":  sym,
+            "name":    q.get("shortName", sym),
+            "price":   price,
+            "change":  change,
+            "volume":  volume,
+            "rel_vol": rel_vol,
         })
 
     results.sort(key=lambda x: x["change"], reverse=True)
