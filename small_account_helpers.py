@@ -187,3 +187,138 @@ def scan_momentum_universe(
 
     results.sort(key=lambda x: x["change"], reverse=True)
     return results
+
+
+# ── Options Chain Liquidity ───────────────────────────────────────────────────
+@st.cache_data(ttl=120)
+def get_options_snapshot(symbol: str) -> dict:
+    """ATM options liquidity: OI and bid/ask spread for nearest expiry."""
+    try:
+        t    = yf.Ticker(symbol)
+        exps = t.options
+        if not exps:
+            return {"available": False}
+        df_px = t.history(period='1d', interval='1m')
+        if df_px.empty:
+            return {"available": False}
+        price = float(df_px['Close'].iloc[-1])
+        chain = t.option_chain(exps[0])
+
+        def liquidity_row(row):
+            oi  = int(row.get('openInterest', 0) or 0)
+            bid = float(row.get('bid', 0) or 0)
+            ask = float(row.get('ask', 0) or 0)
+            mid = (bid + ask) / 2 if (bid + ask) > 0 else 1
+            spread_pct = (ask - bid) / mid * 100 if mid > 0 else 999
+            return {
+                "strike":     float(row['strike']),
+                "oi":         oi,
+                "bid":        bid,
+                "ask":        ask,
+                "spread_pct": round(spread_pct, 1),
+                "liquid":     oi > 200 and spread_pct < 10,
+            }
+
+        calls = chain.calls
+        puts  = chain.puts
+        atm_c = calls.iloc[(calls['strike'] - price).abs().argsort()[:3]]
+        atm_p = puts.iloc[(puts['strike']  - price).abs().argsort()[:3]]
+
+        return {
+            "available": True,
+            "expiry":    exps[0],
+            "price":     price,
+            "calls":     [liquidity_row(r) for _, r in atm_c.iterrows()],
+            "puts":      [liquidity_row(r) for _, r in atm_p.iterrows()],
+        }
+    except Exception:
+        return {"available": False}
+
+
+# ── News Fetch ────────────────────────────────────────────────────────────────
+@st.cache_data(ttl=300)
+def get_news(symbol: str) -> list:
+    """Fetch up to 5 recent news headlines for a ticker via yfinance."""
+    try:
+        raw = yf.Ticker(symbol).news or []
+        result = []
+        for item in raw[:5]:
+            ts = item.get("providerPublishTime", 0)
+            dt = datetime.utcfromtimestamp(ts).strftime('%m/%d %H:%M') if ts else ""
+            result.append({
+                "title":     item.get("title", ""),
+                "link":      item.get("link", ""),
+                "publisher": item.get("publisher", ""),
+                "time":      dt,
+            })
+        return result
+    except Exception:
+        return []
+
+
+# ── Push Notifications (ntfy.sh) ─────────────────────────────────────────────
+def send_ntfy(topic: str, title: str, message: str, priority: str = "high"):
+    """Send a push notification to an ntfy.sh topic (free, no account needed)."""
+    if not topic:
+        return
+    try:
+        requests.post(
+            f"https://ntfy.sh/{topic}",
+            data=message.encode("utf-8"),
+            headers={
+                "Title":    title,
+                "Priority": priority,
+                "Tags":     "chart_with_upwards_trend",
+            },
+            timeout=5,
+        )
+    except Exception:
+        pass
+
+
+# ── Pre-Market Gap Scanner ────────────────────────────────────────────────────
+@st.cache_data(ttl=120)
+def scan_premarket_gaps(
+    min_gap_pct: float = 3.0,
+    min_price:   float = 2.0,
+    max_price:   float = 100.0,
+) -> list:
+    """
+    Scan day_gainers + most_actives for pre-market gap stocks.
+    Uses preMarketPrice vs regularMarketPreviousClose.
+    """
+    raw: dict = {}
+    for screen in ("day_gainers", "most_actives"):
+        for q in _fetch_screen(screen):
+            sym = q.get("symbol", "")
+            if sym and sym not in raw:
+                raw[sym] = q
+
+    results = []
+    for sym, q in raw.items():
+        price      = float(q.get("regularMarketPrice", 0) or 0)
+        prev_close = float(q.get("regularMarketPreviousClose", 0) or 0)
+        pre_price  = float(q.get("preMarketPrice", 0) or 0)
+
+        if not (min_price <= price <= max_price):
+            continue
+        if prev_close <= 0:
+            continue
+
+        gap_price = pre_price if pre_price > 0 else price
+        gap_pct   = (gap_price - prev_close) / prev_close * 100
+
+        if abs(gap_pct) < min_gap_pct:
+            continue
+
+        results.append({
+            "symbol":     sym,
+            "name":       q.get("shortName", sym),
+            "prev_close": round(prev_close, 2),
+            "gap_price":  round(gap_price, 2),
+            "gap_pct":    round(gap_pct, 2),
+            "volume":     int(q.get("regularMarketVolume", 0) or 0),
+        })
+
+    results.sort(key=lambda x: abs(x["gap_pct"]), reverse=True)
+    return results[:20]

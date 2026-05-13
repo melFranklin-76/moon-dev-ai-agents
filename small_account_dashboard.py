@@ -32,6 +32,10 @@ from small_account_helpers import (
     load_tendencies as _load_tend_csv,
     save_tendency   as _save_tend_csv,
     scan_momentum_universe,
+    get_options_snapshot,
+    get_news,
+    send_ntfy,
+    scan_premarket_gaps,
 )
 import sheets_backend as _sheets
 
@@ -130,6 +134,11 @@ _daily_pnl = sum(
     if str(t.get('date', '')).startswith(_today_str)
 )
 
+_daily_goal    = 25.0          # target daily P&L (+10% of $250)
+_today_reds    = len([t for t in _trades_from_file
+                      if str(t.get('date', '')).startswith(_today_str)
+                      and t.get('result') == 'Red'])
+
 defaults = {
     'trades':           _trades_from_file,
     'tendencies':       load_tendencies(),
@@ -138,16 +147,20 @@ defaults = {
     'account_balance':  _computed_balance,
     'starting_balance': _starting_balance,
     'daily_pnl':        round(_daily_pnl, 2),
+    'daily_reds':       _today_reds,
     'watchlist':        [],
     'selected_ticker':  '',   # set when ➕ is clicked — auto-fills other tabs
+    'ntfy_topic':       '',   # ntfy.sh push notification channel
+    'news_cache':       {},   # {symbol: [headlines]} populated on ➕ click
 }
 for k, v in defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
 
-# Always recalculate balance from file so stale session state can't corrupt it
+# Always recalculate from file so stale session state can't corrupt it
 st.session_state.account_balance = _computed_balance
 st.session_state.daily_pnl       = round(_daily_pnl, 2)
+st.session_state.daily_reds      = _today_reds
 
 # ── Data Layer ────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=60)
@@ -352,6 +365,35 @@ with c5: st.metric("💵 Buying Pwr", f"${st.session_state.account_balance - ope
 with c6: st.metric("₿ BTC",         f"${btc_price:,.0f}" if btc_price else "N/A")
 
 st.caption(f"Data via yfinance (15-min delayed during market hours) — refreshed {last_updated}")
+
+# ── Daily P&L Goal Bar ────────────────────────────────────────────────────────
+_dpnl      = st.session_state.daily_pnl
+_goal_pct  = min(max(_dpnl / _daily_goal, 0), 1.0)
+_reds_now  = st.session_state.daily_reds
+if _reds_now >= 3:
+    _goal_color = "#e74c3c"
+    _goal_msg   = f"🛑 THREE STRIKES — Stop trading for today! ({_reds_now} red trades)"
+elif _dpnl < 0:
+    _goal_color = "#e74c3c"
+    _goal_msg   = f"📉 Today: ${_dpnl:+.2f}  |  Goal: +${_daily_goal:.0f}  |  {_reds_now}/3 red trades"
+elif _dpnl >= _daily_goal:
+    _goal_color = "#2ecc71"
+    _goal_msg   = f"🎯 GOAL HIT! +${_dpnl:.2f}  |  Consider locking in and stepping away."
+else:
+    _goal_color = "#f39c12"
+    _goal_msg   = f"📈 Today: ${_dpnl:+.2f} / +${_daily_goal:.0f} goal  |  {_reds_now}/3 red trades"
+
+_goal_bar_html = f"""
+<div style="background:#1e2130; border-radius:8px; padding:8px 14px; margin:4px 0 10px 0;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+    <span style="color:{_goal_color}; font-weight:bold;">{_goal_msg}</span>
+    <span style="color:#8b92a8; font-size:12px;">${_dpnl:+.2f} / +${_daily_goal:.0f}</span>
+  </div>
+  <div style="background:#0e1117; border-radius:4px; height:8px; overflow:hidden;">
+    <div style="background:{_goal_color}; width:{_goal_pct*100:.0f}%; height:8px; border-radius:4px;"></div>
+  </div>
+</div>"""
+st.markdown(_goal_bar_html, unsafe_allow_html=True)
 st.markdown("---")
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
@@ -415,12 +457,62 @@ with tab1:
                 if r['symbol'] not in st.session_state.watchlist:
                     st.session_state.watchlist.append(r['symbol'])
                 st.session_state.selected_ticker = r['symbol']
+                # Auto-fetch news for the selected ticker
+                st.session_state.news_cache[r['symbol']] = get_news(r['symbol'])
                 st.cache_data.clear()
                 st.rerun()
     elif not run_scan:
         st.info("Hit **Scan Universe Now** to find today's optionable movers. Do this each morning after 8:30 AM CT.")
 
+    # ── News for selected ticker ──────────────────────────────────────────────
+    _sel        = st.session_state.get('selected_ticker', '')
+    _news_cache = st.session_state.get('news_cache', {})
+    if _sel:
+        _headlines = _news_cache.get(_sel, [])
+        if _headlines:
+            st.markdown(f"#### 📰 Latest News: **{_sel}**")
+            for n in _headlines:
+                st.markdown(f"- [{n['title']}]({n['link']}) — *{n['publisher']}* `{n['time']}`")
+        else:
+            if st.button(f"📰 Load News for {_sel}", key="fetch_news_btn"):
+                st.session_state.news_cache[_sel] = get_news(_sel)
+                st.rerun()
+
+    # ── Pre-Market Gap Scanner ────────────────────────────────────────────────
     st.markdown("---")
+    with st.expander("🌅 Pre-Market Gap Scanner (open before 8:30 AM CT)", expanded=False):
+        st.caption("Finds stocks with significant overnight gaps — prime candidates for ORB setups at open.")
+        gc1, gc2, gc3 = st.columns(3)
+        g_min_gap   = gc1.number_input("Min Gap (%)",   value=3.0,  step=0.5, min_value=1.0, key="gap_pct")
+        g_min_price = gc2.number_input("Min Price ($)", value=2.0,  step=0.5, min_value=0.5, key="gap_minp")
+        g_max_price = gc3.number_input("Max Price ($)", value=100.0, step=5.0, min_value=1.0, key="gap_maxp")
+        if st.button("🔍 Scan Pre-Market Gaps", key="gap_scan_btn"):
+            with st.spinner("Scanning for gap stocks..."):
+                gaps = scan_premarket_gaps(g_min_gap, g_min_price, g_max_price)
+            st.session_state['_last_gaps'] = gaps
+
+        gaps = st.session_state.get('_last_gaps', [])
+        if gaps:
+            st.markdown(f"**{len(gaps)} gap stocks found** — click ➕ to add to watchlist")
+            for g in gaps:
+                gdir   = "🟢 Gap UP" if g['gap_pct'] > 0 else "🔴 Gap DOWN"
+                color  = "#2ecc71" if g['gap_pct'] > 0 else "#e74c3c"
+                ga1, ga2, ga3, ga4, ga5, ga6 = st.columns([1, 2, 1, 1, 1, 1])
+                ga1.markdown(f"**{g['symbol']}**")
+                ga2.markdown(f"<small>{g['name'][:28]}</small>", unsafe_allow_html=True)
+                ga3.markdown(f"${g['gap_price']:.2f}")
+                ga4.markdown(f"prev ${g['prev_close']:.2f}")
+                ga5.markdown(f"<span style='color:{color}'>{g['gap_pct']:+.1f}%</span>", unsafe_allow_html=True)
+                if ga6.button("➕", key=f"add_gap_{g['symbol']}"):
+                    if g['symbol'] not in st.session_state.watchlist:
+                        st.session_state.watchlist.append(g['symbol'])
+                    st.session_state.selected_ticker = g['symbol']
+                    st.session_state.news_cache[g['symbol']] = get_news(g['symbol'])
+                    st.cache_data.clear()
+                    st.rerun()
+        else:
+            st.info("Click **Scan Pre-Market Gaps** to find overnight gap stocks.")
+
     st.markdown("### 🎯 Setup Signals (Your Watchlist)")
     st.caption("Signals fire on #163 VWAP Reclaim · #172 Whole-Dollar · #177 BTC Sync across tickers you've added above.")
 
@@ -429,6 +521,15 @@ with tab1:
     with col_left:
         st.markdown("#### Active Setups")
         signals = run_scanner(snapshots, btc_price)
+        # Fire push notifications for new signals
+        _ntfy_topic = st.session_state.get('ntfy_topic', '')
+        if signals and _ntfy_topic:
+            for sig in signals:
+                send_ntfy(
+                    _ntfy_topic,
+                    f"🔥 {sig['ticker']} — {sig['strategy']}",
+                    f"{sig['signal']} | {sig['trigger']} | Entry: {sig['entry_note']}",
+                )
         if signals:
             for sig in signals:
                 box = "green-box" if sig['signal'] == "CALL" else "red-box"
@@ -522,6 +623,21 @@ with tab2:
                 vwap_label = "VWAP N/A"
 
             with cols[i % 3]:
+                # Options liquidity check
+                opt = get_options_snapshot(sym)
+                if opt.get("available"):
+                    liq_rows = opt["calls"][:2]
+                    liq_lines = ""
+                    for row in liq_rows:
+                        badge = "✅" if row["liquid"] else "❌"
+                        liq_lines += (
+                            f"<p style='margin:2px 0;'>{badge} ${row['strike']:.0f} call "
+                            f"OI:{row['oi']} spread:{row['spread_pct']:.0f}%</p>"
+                        )
+                    liq_html = f"<p><strong>Options ({opt['expiry']}):</strong></p>{liq_lines}"
+                else:
+                    liq_html = "<p style='color:#8b92a8;'><small>Options data N/A</small></p>"
+
                 st.markdown(f"""
                 <div class="trade-card">
                 <h2>${sym}</h2>
@@ -529,7 +645,8 @@ with tab2:
                 <p>{icon} {snap['change']:+.1f}% | Vol: {snap['volume']}</p>
                 <p><strong>VWAP:</strong> ${vwap:.2f} &nbsp;<em>{vwap_label}</em></p>
                 <hr>
-                <p><strong>Applies:</strong> #163 VWAP · #172 Whole-$ · #177 BTC-sync</p>
+                {liq_html}
+                <p><strong>Strategies:</strong> #163 VWAP · #172 Whole-$ · #177 BTC-sync</p>
                 </div>
                 """, unsafe_allow_html=True)
 
@@ -619,6 +736,77 @@ with tab4:
             all_pnl = sum(float(t.get('pnl', 0)) for t in all_tr)
             st.metric("Total P/L", f"${all_pnl:.2f}")
 
+    # ── Performance Analytics ─────────────────────────────────────────────────
+    st.markdown("---")
+    st.markdown("### 📊 Strategy & Time Analytics")
+    all_tr = st.session_state.trades
+    if len(all_tr) >= 3:
+        df_a = pd.DataFrame(all_tr)
+        df_a['pnl']    = pd.to_numeric(df_a['pnl'], errors='coerce').fillna(0)
+        df_a['date']   = pd.to_datetime(df_a['date'], errors='coerce')
+        df_a['win']    = df_a['result'] == 'Green'
+        df_a['dow']    = df_a['date'].dt.strftime('%a')   # Mon Tue etc
+        df_a['hour']   = df_a['date'].dt.hour
+
+        ana_col1, ana_col2, ana_col3 = st.columns(3)
+
+        # Win rate by strategy (top 8)
+        with ana_col1:
+            st.markdown("**Win Rate by Strategy**")
+            strat_g = (df_a.groupby('strategy')
+                       .agg(trades=('win','count'), wins=('win','sum'), pnl=('pnl','sum'))
+                       .reset_index())
+            strat_g['win_rate'] = strat_g['wins'] / strat_g['trades'] * 100
+            strat_g = strat_g.sort_values('win_rate', ascending=False).head(8)
+            strat_g['label'] = strat_g['strategy'].str[:20]
+            fig_s = go.Figure(go.Bar(
+                x=strat_g['win_rate'], y=strat_g['label'],
+                orientation='h',
+                marker_color=['#2ecc71' if w >= 50 else '#e74c3c' for w in strat_g['win_rate']],
+                text=[f"{w:.0f}% ({t})" for w, t in zip(strat_g['win_rate'], strat_g['trades'])],
+                textposition='outside',
+            ))
+            fig_s.update_layout(template='plotly_dark', height=280,
+                                margin=dict(l=10,r=30,t=10,b=10),
+                                xaxis=dict(range=[0, 110], title="Win %"))
+            st.plotly_chart(fig_s, use_container_width=True)
+
+        # Win rate by day of week
+        with ana_col2:
+            st.markdown("**Win Rate by Day**")
+            dow_order = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+            dow_g = (df_a.groupby('dow')
+                     .agg(trades=('win','count'), wins=('win','sum'))
+                     .reindex(dow_order).reset_index())
+            dow_g['win_rate'] = dow_g['wins'] / dow_g['trades'] * 100
+            fig_d = go.Figure(go.Bar(
+                x=dow_g['dow'], y=dow_g['win_rate'],
+                marker_color=['#2ecc71' if (w >= 50 if not pd.isna(w) else False) else '#e74c3c'
+                              for w in dow_g['win_rate']],
+                text=[f"{w:.0f}%" if not pd.isna(w) else "" for w in dow_g['win_rate']],
+                textposition='outside',
+            ))
+            fig_d.update_layout(template='plotly_dark', height=280,
+                                margin=dict(l=10,r=10,t=10,b=10),
+                                yaxis=dict(range=[0, 110], title="Win %"))
+            st.plotly_chart(fig_d, use_container_width=True)
+
+        # P&L distribution
+        with ana_col3:
+            st.markdown("**P&L Distribution**")
+            fig_p = go.Figure(go.Histogram(
+                x=df_a['pnl'],
+                marker_color='#3498db',
+                nbinsx=15,
+            ))
+            fig_p.add_vline(x=0, line_color='#e74c3c', line_dash='dash')
+            fig_p.update_layout(template='plotly_dark', height=280,
+                                margin=dict(l=10,r=10,t=10,b=10),
+                                xaxis_title="P&L ($)", yaxis_title="# trades")
+            st.plotly_chart(fig_p, use_container_width=True)
+    else:
+        st.info("Log at least 3 trades to unlock analytics — strategy win rates, best days, P&L distribution.")
+
 # ─────────────────────────────────────────────────────────────────────────────
 # TAB 5  JOURNAL
 # ─────────────────────────────────────────────────────────────────────────────
@@ -626,7 +814,26 @@ with tab5:
     st.markdown("## 📝 TRADE JOURNAL")
     st.markdown("*Log every trade — wins and losses*")
 
-    with st.expander("➕ Log New Trade", expanded=False):
+    # ── Three-Strike Auto-Block ───────────────────────────────────────────────
+    _reds_today = st.session_state.daily_reds
+    _blocked    = _reds_today >= 3
+    if _blocked:
+        st.markdown("""
+        <div class="red-box">
+        <h2>🛑 THREE STRIKES — JOURNAL LOCKED FOR TODAY</h2>
+        <p>You've had <strong>3 red trades</strong> today. The rules are clear: <strong>STOP TRADING.</strong></p>
+        <p>No more setups today. Close your charts. Review your tendencies. Come back tomorrow fresh.</p>
+        <p style="color:#f39c12;"><em>"The best trade is sometimes no trade." — every pro trader ever</em></p>
+        </div>
+        """, unsafe_allow_html=True)
+    elif _reds_today > 0:
+        st.markdown(
+            f'<div class="yellow-box"><p>⚠️ <strong>{_reds_today}/3 red trades today.</strong> '
+            f'One more red trade locks the journal. Trade only A+ setups now.</p></div>',
+            unsafe_allow_html=True
+        )
+
+    with st.expander("➕ Log New Trade", expanded=False and not _blocked):
         c1, c2 = st.columns(2)
         with c1:
             ticker_sel   = st.text_input("Ticker", value=st.session_state.get('selected_ticker', ''), placeholder="e.g. NVDA", key="journal_ticker").upper().strip()
@@ -640,7 +847,7 @@ with tab5:
             result_sel = st.radio("Result", ["Green", "Flat", "Red"])
             notes_val  = st.text_area("Notes", placeholder="What did you see? Why enter? How did it feel?")
 
-        if st.button("💾 Save Trade", type="primary"):
+        if st.button("💾 Save Trade", type="primary", disabled=_blocked):
             trade = {
                 'date': datetime.now().isoformat(), 'ticker': ticker_sel,
                 'strategy': strategy_sel, 'side': side_sel,
@@ -1102,6 +1309,38 @@ with st.sidebar:
             st.rerun()
     else:
         st.info("No tickers yet. Find momentum names on Finviz, then add them here.")
+
+    st.markdown("---")
+    st.markdown("### 📲 Push Notifications (ntfy.sh)")
+    st.caption("Get iPhone alerts when signals fire. Free — no account needed.")
+    _ntfy_input = st.text_input(
+        "ntfy.sh topic",
+        value=st.session_state.get('ntfy_topic', ''),
+        placeholder="e.g. scalper_mel_2025",
+        key="ntfy_input",
+        help="Pick any unique name. Install ntfy app on iPhone → subscribe to same topic."
+    )
+    if st.button("💾 Save Topic", key="save_ntfy"):
+        st.session_state['ntfy_topic'] = _ntfy_input.strip()
+        st.success(f"Topic saved: {_ntfy_input.strip()}")
+    if st.session_state.get('ntfy_topic'):
+        if st.button("🔔 Test Notification", key="test_ntfy"):
+            send_ntfy(
+                st.session_state['ntfy_topic'],
+                "🌙 Scalper Dashboard Test",
+                "Push notifications are working! You'll get alerts when signals fire.",
+                priority="default"
+            )
+            st.success("Test sent — check your phone!")
+        st.caption(f"Active: ntfy.sh/**{st.session_state['ntfy_topic']}**")
+    else:
+        st.markdown("""
+        <small>
+        1. Download <strong>ntfy</strong> app on iPhone (free)<br>
+        2. Enter any unique topic name above<br>
+        3. In the app, subscribe to that same topic<br>
+        4. Signals will push to your phone automatically
+        </small>""", unsafe_allow_html=True)
 
     st.markdown("---")
     st.markdown("### 🔌 Alpaca Connection")
