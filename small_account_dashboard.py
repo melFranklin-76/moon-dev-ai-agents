@@ -29,8 +29,11 @@ import yfinance as yf
 
 from small_account_helpers import (
     get_regime_data, get_sector_data, get_xsp_data,
-    load_tendencies, save_tendency, scan_momentum_universe,
+    load_tendencies as _load_tend_csv,
+    save_tendency   as _save_tend_csv,
+    scan_momentum_universe,
 )
+import sheets_backend as _sheets
 
 load_dotenv()
 
@@ -83,6 +86,8 @@ ALL_STRATEGIES = [
 
 # ── Persistence ───────────────────────────────────────────────────────────────
 def load_trades() -> list:
+    if _sheets.sheets_available():
+        return _sheets.load_trades()
     if not TRADES_FILE.exists():
         return []
     try:
@@ -91,12 +96,26 @@ def load_trades() -> list:
         return []
 
 def save_trade(trade: dict):
+    if _sheets.sheets_available():
+        _sheets.save_trade(trade)
+        return
     exists = TRADES_FILE.exists()
     with open(TRADES_FILE, 'a', newline='') as f:
         w = csv.DictWriter(f, fieldnames=TRADE_FIELDS)
         if not exists:
             w.writeheader()
         w.writerow({k: trade.get(k, '') for k in TRADE_FIELDS})
+
+def load_tendencies() -> list:
+    if _sheets.sheets_available():
+        return _sheets.load_tendencies()
+    return _load_tend_csv()
+
+def save_tendency(text: str):
+    if _sheets.sheets_available():
+        _sheets.save_tendency(text)
+    else:
+        _save_tend_csv(text)
 
 # ── Session State ─────────────────────────────────────────────────────────────
 _trades_from_file = load_trades()

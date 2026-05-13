@@ -1,0 +1,16 @@
+Add these keys to your project's Info.plist in Xcode.
+Open Info.plist as source code (right-click → Open As → Source Code)
+and paste this inside the top-level <dict>:
+
+<!-- Allow HTTP connections to local network (Streamlit runs http://) -->
+<key>NSAppTransportSecurity</key>
+<dict>
+    <key>NSAllowsLocalNetworking</key>
+    <true/>
+    <key>NSAllowsArbitraryLoadsInWebContent</key>
+    <true/>
+</dict>
+
+NSAllowsLocalNetworking  → covers 192.168.x.x and .local addresses
+NSAllowsArbitraryLoadsInWebContent → lets WKWebView load any http:// URL
+This is safe for a personal local-network-only app.
