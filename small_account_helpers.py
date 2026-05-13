@@ -15,7 +15,12 @@ from pathlib import Path
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 _DATA_DIR = Path(__file__).parent / "src" / "data" / "small_account"
-_DATA_DIR.mkdir(parents=True, exist_ok=True)
+try:
+    _DATA_DIR.mkdir(parents=True, exist_ok=True)
+except (PermissionError, OSError):
+    # Streamlit Cloud read-only fs — fall back to /tmp
+    _DATA_DIR = Path("/tmp") / "small_account"
+    _DATA_DIR.mkdir(parents=True, exist_ok=True)
 TEND_FILE = _DATA_DIR / "tendencies.csv"
 
 # ── Regime Data ───────────────────────────────────────────────────────────────

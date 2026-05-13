@@ -32,11 +32,20 @@ from small_account_helpers import (
     load_tendencies as _load_tend_csv,
     save_tendency   as _save_tend_csv,
     scan_momentum_universe,
-    get_options_snapshot,
-    get_news,
-    send_ntfy,
-    scan_premarket_gaps,
 )
+# v3.1 helpers — defensive import so a version mismatch never crashes the app
+try:
+    from small_account_helpers import (
+        get_options_snapshot,
+        get_news,
+        send_ntfy,
+        scan_premarket_gaps,
+    )
+except ImportError:
+    def get_options_snapshot(symbol: str) -> dict: return {"available": False}
+    def get_news(symbol: str) -> list:             return []
+    def send_ntfy(*a, **kw):                       pass
+    def scan_premarket_gaps(*a, **kw) -> list:     return []
 import sheets_backend as _sheets
 
 load_dotenv()
