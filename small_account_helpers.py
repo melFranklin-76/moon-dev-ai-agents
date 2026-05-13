@@ -6,6 +6,7 @@ Helper functions for Small Account Dashboard v3.0
 """
 
 import csv
+import numpy as np
 import requests
 import streamlit as st
 import pandas as pd
@@ -327,3 +328,114 @@ def scan_premarket_gaps(
 
     results.sort(key=lambda x: abs(x["gap_pct"]), reverse=True)
     return results[:20]
+
+
+# ── IV Rank ───────────────────────────────────────────────────────────────────
+@st.cache_data(ttl=300)
+def get_iv_rank(symbol: str) -> dict:
+    """
+    IV Rank for options buyers.
+
+    Uses ATM implied volatility from the nearest weekly expiry and compares it
+    to rolling historical realized volatility (HV20 / HV63) as a proxy for the
+    52-week IV range.  Returns a grade — CHEAP / FAIR / RICH — with the key
+    numbers so the trader knows exactly what they're paying for.
+
+    CHEAP  →  IV below recent realised vol  →  buy options, small move = big profit
+    FAIR   →  IV roughly in line            →  normal premium, trade on signal merit
+    RICH   →  IV elevated vs recent moves   →  overpaying, need a BIG move to profit
+    """
+    try:
+        t = yf.Ticker(symbol)
+
+        # ── 1. current price ──────────────────────────────────────────────────
+        hist5 = t.history(period='5d', interval='1d')
+        if hist5.empty:
+            return {"available": False}
+        price = float(hist5['Close'].iloc[-1])
+
+        # ── 2. ATM implied volatility from nearest expiry ─────────────────────
+        exps = t.options
+        if not exps:
+            return {"available": False}
+        chain  = t.option_chain(exps[0])
+        calls  = chain.calls
+        calls  = calls[calls['impliedVolatility'] > 0].copy()
+        if calls.empty:
+            return {"available": False}
+        atm_idx  = (calls['strike'] - price).abs().argsort().iloc[0]
+        atm_call = calls.iloc[atm_idx]
+        current_iv = float(atm_call['impliedVolatility'])   # already annualised (0–1+)
+
+        # ── 3. Historical realised volatility (annualised) ────────────────────
+        hist1y = t.history(period='1y', interval='1d')
+        if len(hist1y) < 30:
+            return {"available": False}
+        log_ret = np.log(hist1y['Close'] / hist1y['Close'].shift(1)).dropna()
+        hv20    = float(log_ret.tail(20).std() * np.sqrt(252))
+        hv63    = float(log_ret.tail(63).std() * np.sqrt(252))
+
+        # ── 4. IV Rank: approximate 52-wk IV range via rolling HV windows ─────
+        hv_roll = [
+            float(log_ret.iloc[i:i+20].std() * np.sqrt(252))
+            for i in range(0, max(len(log_ret) - 20, 1), 5)
+        ]
+        hv_min  = min(hv_roll)
+        hv_max  = max(hv_roll)
+        iv_rank = (
+            (current_iv - hv_min) / (hv_max - hv_min) * 100
+            if hv_max > hv_min else 50.0
+        )
+        iv_rank = round(min(max(iv_rank, 0), 100), 1)
+
+        # ── 5. IV / HV ratio ──────────────────────────────────────────────────
+        ratio = round(current_iv / hv20, 2) if hv20 > 0 else 1.0
+
+        # ── 6. Grade ──────────────────────────────────────────────────────────
+        if ratio < 0.85:
+            grade = "CHEAP"
+            color = "#2ecc71"
+            emoji = "🟢"
+            advice = (
+                f"IV ({current_iv*100:.0f}%) is BELOW recent realised vol "
+                f"({hv20*100:.0f}%). Options are a bargain — "
+                f"a normal move pays well."
+            )
+        elif ratio > 1.40:
+            grade = "RICH"
+            color = "#e74c3c"
+            emoji = "🔴"
+            advice = (
+                f"IV ({current_iv*100:.0f}%) is {ratio:.1f}x recent realised vol "
+                f"({hv20*100:.0f}%). You are overpaying for premium — "
+                f"the stock needs a BIG move just to break even. "
+                f"Wait for IV to drop OR reduce size."
+            )
+        else:
+            grade = "FAIR"
+            color = "#f39c12"
+            emoji = "🟡"
+            advice = (
+                f"IV ({current_iv*100:.0f}%) is roughly in line with recent "
+                f"realised vol ({hv20*100:.0f}%). Normal premium — "
+                f"trade on signal merit alone."
+            )
+
+        return {
+            "available":  True,
+            "symbol":     symbol,
+            "current_iv": round(current_iv * 100, 1),   # % e.g. 45.2
+            "hv20":       round(hv20 * 100, 1),
+            "hv63":       round(hv63 * 100, 1),
+            "ratio":      ratio,
+            "iv_rank":    iv_rank,
+            "grade":      grade,
+            "color":      color,
+            "emoji":      emoji,
+            "advice":     advice,
+            "expiry":     exps[0],
+            "strike":     float(atm_call['strike']),
+        }
+
+    except Exception:
+        return {"available": False}

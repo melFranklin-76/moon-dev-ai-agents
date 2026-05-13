@@ -33,19 +33,21 @@ from small_account_helpers import (
     save_tendency   as _save_tend_csv,
     scan_momentum_universe,
 )
-# v3.1 helpers — defensive import so a version mismatch never crashes the app
+# v3.1+ helpers — defensive import so a version mismatch never crashes the app
 try:
     from small_account_helpers import (
         get_options_snapshot,
         get_news,
         send_ntfy,
         scan_premarket_gaps,
+        get_iv_rank,
     )
 except ImportError:
     def get_options_snapshot(symbol: str) -> dict: return {"available": False}
     def get_news(symbol: str) -> list:             return []
     def send_ntfy(*a, **kw):                       pass
     def scan_premarket_gaps(*a, **kw) -> list:     return []
+    def get_iv_rank(symbol: str) -> dict:          return {"available": False}
 import sheets_backend as _sheets
 
 load_dotenv()
@@ -647,12 +649,31 @@ with tab2:
                 else:
                     liq_html = "<p style='color:#8b92a8;'><small>Options data N/A</small></p>"
 
+                # IV Rank badge
+                iv = get_iv_rank(sym)
+                if iv.get("available"):
+                    iv_html = (
+                        f"<p style='margin:4px 0;'>"
+                        f"<span style='background:{iv['color']}22; color:{iv['color']}; "
+                        f"border:1px solid {iv['color']}; border-radius:5px; "
+                        f"padding:2px 8px; font-weight:bold; font-size:13px;'>"
+                        f"{iv['emoji']} IV {iv['grade']} &nbsp;|&nbsp; "
+                        f"IV:{iv['current_iv']}% &nbsp; HV20:{iv['hv20']}% &nbsp; "
+                        f"Rank:{iv['iv_rank']:.0f}</span></p>"
+                        f"<p style='color:#8b92a8; font-size:11px; margin:2px 0;'>"
+                        f"{iv['advice']}</p>"
+                    )
+                else:
+                    iv_html = "<p style='color:#8b92a8;'><small>IV data loading…</small></p>"
+
                 st.markdown(f"""
                 <div class="trade-card">
                 <h2>${sym}</h2>
                 <p class="big-text" style="color:{color};">${price:.2f}</p>
                 <p>{icon} {snap['change']:+.1f}% | Vol: {snap['volume']}</p>
                 <p><strong>VWAP:</strong> ${vwap:.2f} &nbsp;<em>{vwap_label}</em></p>
+                <hr>
+                {iv_html}
                 <hr>
                 {liq_html}
                 <p><strong>Strategies:</strong> #163 VWAP · #172 Whole-$ · #177 BTC-sync</p>
@@ -1027,7 +1048,35 @@ with tab7:
             <p>{note}</p>
             </div>""", unsafe_allow_html=True)
 
-            # Options liquidity check
+            # ── IV Rank check ─────────────────────────────────────────────
+            iv_g = get_iv_rank(ticker_g)
+            if iv_g.get("available"):
+                iv_box = (
+                    "green-box"  if iv_g['grade'] == "CHEAP" else
+                    "red-box"    if iv_g['grade'] == "RICH"  else
+                    "yellow-box"
+                )
+                iv_warn = ""
+                if iv_g['grade'] == "RICH":
+                    iv_warn = " ⚠️ Consider waiting for IV to drop before entering."
+                elif iv_g['grade'] == "CHEAP":
+                    iv_warn = " ✅ Good time to buy options — premium is cheap."
+                st.markdown(f"""
+                <div class="{iv_box}">
+                <h3>{iv_g['emoji']} IV Rank: {iv_g['iv_rank']:.0f} — Options are {iv_g['grade']}{iv_warn}</h3>
+                <p>{iv_g['advice']}</p>
+                <p style="font-size:12px; color:#8b92a8;">
+                  Current IV: {iv_g['current_iv']}% &nbsp;|&nbsp;
+                  HV20: {iv_g['hv20']}% &nbsp;|&nbsp;
+                  HV63: {iv_g['hv63']}% &nbsp;|&nbsp;
+                  IV/HV ratio: {iv_g['ratio']}x &nbsp;|&nbsp;
+                  Expiry used: {iv_g['expiry']}
+                </p>
+                </div>""", unsafe_allow_html=True)
+            else:
+                st.info(f"IV data loading for {ticker_g}…")
+
+            # ── Options liquidity check ───────────────────────────────────────
             if price > 0:
                 if price < 5:
                     st.error(f"⚠️ Options Liquidity: {ticker_g} at ${price:.2f} — stocks under $5 almost never have liquid options. Wide spreads will eat your edge. Consider skipping or trading a correlated liquid name.")
@@ -1101,6 +1150,27 @@ with tab8:
             d_time   = st.time_input("Entry Time (CT)", value=datetime.strptime("08:35", "%H:%M").time())
 
         with c2:
+            # IV Rank — show before the plan so you know what you're paying
+            if d_tick:
+                iv_p = get_iv_rank(d_tick)
+                if iv_p.get("available"):
+                    iv_p_box = (
+                        "green-box"  if iv_p['grade'] == "CHEAP" else
+                        "red-box"    if iv_p['grade'] == "RICH"  else
+                        "yellow-box"
+                    )
+                    st.markdown(f"""
+                    <div class="{iv_p_box}" style="padding:10px 14px; margin-bottom:8px;">
+                    <strong>{iv_p['emoji']} {d_tick} — Options are {iv_p['grade']} &nbsp;
+                    (IV Rank {iv_p['iv_rank']:.0f})</strong><br>
+                    <span style="font-size:13px;">{iv_p['advice']}</span><br>
+                    <span style="font-size:11px; color:#8b92a8;">
+                      IV {iv_p['current_iv']}% &nbsp;·&nbsp;
+                      HV20 {iv_p['hv20']}% &nbsp;·&nbsp;
+                      ratio {iv_p['ratio']}x
+                    </span>
+                    </div>""", unsafe_allow_html=True)
+
             if d_price > 0 and d_prem > 0:
                 strike = round(d_price)
                 cost   = round(d_prem * 100, 2)
