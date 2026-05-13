@@ -41,6 +41,7 @@ try:
         send_ntfy,
         scan_premarket_gaps,
         get_iv_rank,
+        get_rs_vs_spy,
     )
 except ImportError:
     def get_options_snapshot(symbol: str) -> dict: return {"available": False}
@@ -48,6 +49,7 @@ except ImportError:
     def send_ntfy(*a, **kw):                       pass
     def scan_premarket_gaps(*a, **kw) -> list:     return []
     def get_iv_rank(symbol: str) -> dict:          return {"available": False}
+    def get_rs_vs_spy(symbol: str) -> dict:        return {"available": False}
 import sheets_backend as _sheets
 
 load_dotenv()
@@ -544,12 +546,28 @@ with tab1:
         if signals:
             for sig in signals:
                 box = "green-box" if sig['signal'] == "CALL" else "red-box"
+                # RS confirmation on signal card
+                rs_sig = get_rs_vs_spy(sig['ticker'])
+                if rs_sig.get("available"):
+                    rs_ratio_txt = (
+                        f"{rs_sig['rs']:.1f}x" if abs(rs_sig['rs']) < 90
+                        else ("∞" if rs_sig['rs'] > 0 else "−∞")
+                    )
+                    rs_line = (
+                        f"<p><strong>RS vs SPY:</strong> "
+                        f"<span style='color:{rs_sig['color']};'>"
+                        f"{rs_sig['label']} {rs_sig['stars']} ({rs_ratio_txt})</span> "
+                        f"— {rs_sig['desc']}</p>"
+                    )
+                else:
+                    rs_line = ""
                 st.markdown(f"""
                 <div class="{box}">
-                <h3>${sig['ticker']} — {sig['strategy']} {sig['strength']}</h3>
+                <h3>{sig['ticker']} — {sig['strategy']} {sig['strength']}</h3>
                 <p><strong>Signal:</strong> {sig['signal']}</p>
                 <p><strong>Trigger:</strong> {sig['trigger']}</p>
                 <p><strong>Entry:</strong> {sig['entry_note']}</p>
+                {rs_line}
                 <p><strong>Stop:</strong> {sig['stop']}</p>
                 <p><strong>Targets:</strong> {sig['targets']}</p>
                 </div>
@@ -666,6 +684,28 @@ with tab2:
                 else:
                     iv_html = "<p style='color:#8b92a8;'><small>IV data loading…</small></p>"
 
+                # Relative Strength vs SPY badge
+                rs = get_rs_vs_spy(sym)
+                if rs.get("available"):
+                    rs_ratio_txt = (
+                        f"{rs['rs']:.1f}x" if abs(rs['rs']) < 90
+                        else ("∞" if rs['rs'] > 0 else "−∞")
+                    )
+                    rs_html = (
+                        f"<p style='margin:4px 0;'>"
+                        f"<span style='background:{rs['color']}22; color:{rs['color']}; "
+                        f"border:1px solid {rs['color']}; border-radius:5px; "
+                        f"padding:2px 8px; font-weight:bold; font-size:13px;'>"
+                        f"RS {rs['label']} &nbsp;|&nbsp; {rs['stars']} &nbsp;|&nbsp; "
+                        f"{rs_ratio_txt} vs SPY</span></p>"
+                        f"<p style='color:#8b92a8; font-size:11px; margin:2px 0;'>"
+                        f"{sym} {rs['stock_chg']:+.1f}% &nbsp;·&nbsp; "
+                        f"SPY {rs['spy_chg']:+.1f}% &nbsp;·&nbsp; "
+                        f"{rs['desc']}</p>"
+                    )
+                else:
+                    rs_html = "<p style='color:#8b92a8;'><small>RS data loading…</small></p>"
+
                 st.markdown(f"""
                 <div class="trade-card">
                 <h2>${sym}</h2>
@@ -673,6 +713,7 @@ with tab2:
                 <p>{icon} {snap['change']:+.1f}% | Vol: {snap['volume']}</p>
                 <p><strong>VWAP:</strong> ${vwap:.2f} &nbsp;<em>{vwap_label}</em></p>
                 <hr>
+                {rs_html}
                 {iv_html}
                 <hr>
                 {liq_html}
@@ -1047,6 +1088,31 @@ with tab7:
             <h2>Grade: {grade} &nbsp;&nbsp; ({score}/5)</h2>
             <p>{note}</p>
             </div>""", unsafe_allow_html=True)
+
+            # ── Relative Strength check ───────────────────────────────────
+            rs_g = get_rs_vs_spy(ticker_g)
+            if rs_g.get("available"):
+                rs_g_ratio = (
+                    f"{rs_g['rs']:.1f}x" if abs(rs_g['rs']) < 90
+                    else ("∞ (leading)" if rs_g['rs'] > 0 else "lagging badly")
+                )
+                rs_g_box = (
+                    "green-box"  if rs_g['score'] >= 7 else
+                    "red-box"    if rs_g['score'] <= 3 else
+                    "yellow-box"
+                )
+                st.markdown(f"""
+                <div class="{rs_g_box}">
+                <h3>📊 RS vs SPY: {rs_g['label']} &nbsp; {rs_g['stars']}</h3>
+                <p>{rs_g['desc']}</p>
+                <p style="font-size:12px; color:#8b92a8;">
+                  {ticker_g}: {rs_g['stock_chg']:+.1f}% &nbsp;·&nbsp;
+                  SPY: {rs_g['spy_chg']:+.1f}% &nbsp;·&nbsp;
+                  Ratio: {rs_g_ratio}
+                </p>
+                </div>""", unsafe_allow_html=True)
+            else:
+                st.info(f"RS data loading for {ticker_g}…")
 
             # ── IV Rank check ─────────────────────────────────────────────
             iv_g = get_iv_rank(ticker_g)

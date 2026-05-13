@@ -439,3 +439,111 @@ def get_iv_rank(symbol: str) -> dict:
 
     except Exception:
         return {"available": False}
+
+
+# ── Relative Strength vs SPY ──────────────────────────────────────────────────
+@st.cache_data(ttl=60)
+def _get_spy_change() -> float:
+    """SPY today % change — cached once, shared by every RS call."""
+    try:
+        df = yf.Ticker('SPY').history(period='2d', interval='1d')
+        if len(df) < 2:
+            return 0.0
+        return float(
+            (df['Close'].iloc[-1] - df['Close'].iloc[-2]) / df['Close'].iloc[-2] * 100
+        )
+    except Exception:
+        return 0.0
+
+
+@st.cache_data(ttl=60)
+def get_rs_vs_spy(symbol: str) -> dict:
+    """
+    Real-time Relative Strength score vs SPY.
+
+    RS = stock % change today / SPY % change today.
+
+    Score 1-10:
+      10  Stock UP while SPY DOWN   — strongest possible signal
+       9  RS >= 3x                  — blazing momentum
+       7  RS >= 2x                  — strong, momentum confirmed
+       6  RS >= 1.2x                — slightly outperforming
+       5  RS ~= 1x                  — moving with market
+       3  RS < 0.8x                 — underperforming
+       1  Stock DOWN while SPY UP   — avoid
+
+    For call buying: target score >= 7 (STRONG or better).
+    """
+    try:
+        df = yf.Ticker(symbol).history(period='2d', interval='1d')
+        if len(df) < 2:
+            return {"available": False}
+
+        stock_chg = float(
+            (df['Close'].iloc[-1] - df['Close'].iloc[-2]) / df['Close'].iloc[-2] * 100
+        )
+        spy_chg = _get_spy_change()
+
+        # ── Determine label, color, score ─────────────────────────────────────
+        if stock_chg > 0 and spy_chg <= 0:
+            label, color, score = "LEADING ↑", "#2ecc71", 10
+            rs   = 99.0
+            desc = (f"{symbol} GREEN while SPY is flat/red — "
+                    f"institutions are buying into weakness. Strongest RS signal.")
+
+        elif stock_chg <= 0 and spy_chg > 0:
+            label, color, score = "LAGGING ↓", "#e74c3c", 1
+            rs   = -99.0
+            desc = (f"{symbol} RED while SPY is green — "
+                    f"distribution happening. Avoid calls here.")
+
+        elif abs(spy_chg) < 0.05:
+            label, color, score = "SPY FLAT", "#8b92a8", 5
+            rs   = 1.0
+            desc = f"SPY essentially flat — judge {symbol} ({stock_chg:+.1f}%) on its own merit."
+
+        else:
+            rs = stock_chg / spy_chg
+
+            if rs >= 3.0:
+                label, color, score = "BLAZING 🔥", "#2ecc71", 9
+                desc = (f"{symbol} moving {rs:.1f}x faster than SPY — "
+                        f"extremely strong relative momentum.")
+            elif rs >= 2.0:
+                label, color, score = "STRONG", "#2ecc71", 7
+                desc = (f"Outpacing SPY by {rs:.1f}x — "
+                        f"momentum confirmed. Good call candidate.")
+            elif rs >= 1.2:
+                label, color, score = "ABOVE MKT", "#f39c12", 6
+                desc = (f"Slight outperformance ({rs:.1f}x). "
+                        f"OK signal — look for stronger RS on A+ setups.")
+            elif rs >= 0.8:
+                label, color, score = "IN LINE", "#8b92a8", 5
+                desc = (f"Moving with the market ({rs:.1f}x). "
+                        f"No RS edge — rely entirely on price setup quality.")
+            elif rs >= 0.0:
+                label, color, score = "WEAK", "#e74c3c", 3
+                desc = (f"Underperforming SPY ({rs:.1f}x). "
+                        f"Market is dragging it up — reduce size or skip.")
+            else:
+                label, color, score = "VERY WEAK", "#e74c3c", 1
+                desc = (f"Moving opposite to SPY ({rs:.1f}x). "
+                        f"Active distribution — avoid.")
+
+        stars = "★" * min(round(score / 2), 5) + "☆" * (5 - min(round(score / 2), 5))
+
+        return {
+            "available": True,
+            "symbol":    symbol,
+            "stock_chg": round(stock_chg, 2),
+            "spy_chg":   round(spy_chg, 2),
+            "rs":        round(rs, 2) if abs(rs) < 90 else rs,
+            "label":     label,
+            "color":     color,
+            "score":     score,
+            "stars":     stars,
+            "desc":      desc,
+        }
+
+    except Exception:
+        return {"available": False}
