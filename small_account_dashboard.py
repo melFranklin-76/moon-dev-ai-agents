@@ -135,10 +135,11 @@ defaults = {
     'tendencies':       load_tendencies(),
     'challenge_days':   [0] * 10,
     'current_streak':   0,
-    'account_balance':  _computed_balance,   # always derived from trade history
+    'account_balance':  _computed_balance,
     'starting_balance': _starting_balance,
     'daily_pnl':        round(_daily_pnl, 2),
     'watchlist':        [],
+    'selected_ticker':  '',   # set when ➕ is clicked — auto-fills other tabs
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -413,8 +414,9 @@ with tab1:
             if rc6.button("➕", key=f"add_uni_{r['symbol']}"):
                 if r['symbol'] not in st.session_state.watchlist:
                     st.session_state.watchlist.append(r['symbol'])
-                    st.cache_data.clear()
-                    st.rerun()
+                st.session_state.selected_ticker = r['symbol']
+                st.cache_data.clear()
+                st.rerun()
     elif not run_scan:
         st.info("Hit **Scan Universe Now** to find today's optionable movers. Do this each morning after 8:30 AM CT.")
 
@@ -627,7 +629,7 @@ with tab5:
     with st.expander("➕ Log New Trade", expanded=False):
         c1, c2 = st.columns(2)
         with c1:
-            ticker_sel   = st.text_input("Ticker", placeholder="e.g. NVDA").upper().strip()
+            ticker_sel   = st.text_input("Ticker", value=st.session_state.get('selected_ticker', ''), placeholder="e.g. NVDA", key="journal_ticker").upper().strip()
             strategy_sel = st.selectbox("Strategy", ALL_STRATEGIES)
             side_sel     = st.radio("Side", ["Call", "Put"])
             entry_p      = st.number_input("Entry Price ($)", value=0.66, step=0.01, min_value=0.01)
@@ -759,7 +761,7 @@ with tab7:
     c_left, c_right = st.columns([1, 1])
 
     with c_left:
-        ticker_g = st.text_input("Ticker Symbol", "", placeholder="e.g. FSLY").upper().strip()
+        ticker_g = st.text_input("Ticker Symbol", value=st.session_state.get('selected_ticker', ''), placeholder="e.g. FSLY", key="grader_ticker").upper().strip()
 
         st.markdown("#### 5 Checks in Favor")
         ch1 = st.checkbox("1. Pre-market % AVOL > 20%  *(extended hours vol ÷ 30-day avg daily vol)*")
@@ -875,7 +877,7 @@ with tab8:
 
         c1, c2 = st.columns(2)
         with c1:
-            d_tick   = st.text_input("Ticker", "", placeholder="e.g. FSLY").upper()
+            d_tick   = st.text_input("Ticker", value=st.session_state.get('selected_ticker', ''), placeholder="e.g. FSLY", key="planner_ticker").upper()
             d_price  = st.number_input("Current Stock Price ($)", value=0.0, step=0.01, min_value=0.0)
             d_prem   = st.number_input("Option Ask — Premium ($)", value=0.0, step=0.01, min_value=0.0,
                                         help="The price you pay per share. Multiply × 100 for total cost.")
