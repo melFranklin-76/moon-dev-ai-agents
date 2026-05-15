@@ -672,3 +672,121 @@ def get_squeeze_score(symbol: str) -> dict:
 
     except Exception:
         return {"available": False}
+
+
+# ── Max Pain ──────────────────────────────────────────────────────────────────
+@st.cache_data(ttl=300)
+def get_max_pain(symbol: str) -> dict:
+    """
+    Max Pain: the strike price where option sellers (market makers) collect
+    the most premium — i.e. where the most open interest expires worthless.
+
+    Price gravitates toward max pain as expiration approaches. The pull is
+    strongest in the final 3–5 days before expiry (pinning effect).
+
+    Algorithm: for each possible expiry strike, calculate the total intrinsic
+    value that would be paid out to ALL option holders. The strike with the
+    LOWEST total payout = max pain for option buyers = max profit for sellers.
+
+    Magnetic pull strength:
+      ≤ 2 days  → very strong pin  (MMs actively defend)
+      ≤ 5 days  → strong pull
+      ≤ 14 days → moderate         (worth watching)
+      > 14 days → weak             (too early to matter much)
+    """
+    try:
+        t    = yf.Ticker(symbol)
+        exps = t.options
+        if not exps:
+            return {"available": False}
+
+        # Current price
+        hist = t.history(period='1d', interval='1m')
+        if hist.empty:
+            return {"available": False}
+        price  = float(hist['Close'].iloc[-1])
+        expiry = exps[0]
+
+        chain = t.option_chain(expiry)
+        calls = chain.calls[['strike', 'openInterest']].copy()
+        puts  = chain.puts[['strike',  'openInterest']].copy()
+        calls['openInterest'] = calls['openInterest'].fillna(0).astype(int)
+        puts['openInterest']  = puts['openInterest'].fillna(0).astype(int)
+
+        strikes = sorted(set(calls['strike'].tolist() + puts['strike'].tolist()))
+        if len(strikes) < 3:
+            return {"available": False}
+
+        # ── Calculate total pain at each strike ───────────────────────────────
+        pain = {}
+        for s in strikes:
+            call_pain = sum(
+                (s - r['strike']) * r['openInterest'] * 100
+                for _, r in calls.iterrows() if r['strike'] < s
+            )
+            put_pain = sum(
+                (r['strike'] - s) * r['openInterest'] * 100
+                for _, r in puts.iterrows() if r['strike'] > s
+            )
+            pain[s] = call_pain + put_pain
+
+        max_pain_strike = min(pain, key=pain.get)
+
+        # ── Direction & distance ──────────────────────────────────────────────
+        diff     = max_pain_strike - price
+        diff_pct = diff / price * 100
+
+        # ── Days to expiry ────────────────────────────────────────────────────
+        exp_date    = datetime.strptime(expiry, '%Y-%m-%d').date()
+        days_to_exp = (exp_date - datetime.now().date()).days
+
+        if days_to_exp <= 2:
+            pull_label = "🧲 VERY STRONG PIN"
+            pull_color = "#e74c3c"
+            pull_note  = "Final days — MMs actively defending max pain. High probability of pin."
+        elif days_to_exp <= 5:
+            pull_label = "🧲 STRONG PULL"
+            pull_color = "#f39c12"
+            pull_note  = "Inside 5 days — price likely drifting toward max pain this week."
+        elif days_to_exp <= 14:
+            pull_label = "📍 MODERATE"
+            pull_color = "#8b92a8"
+            pull_note  = "Worth noting but too early for strong pin action."
+        else:
+            pull_label = "📍 WEAK"
+            pull_color = "#8b92a8"
+            pull_note  = f"Expiry {days_to_exp} days out — max pain matters more in final week."
+
+        if abs(diff) < 0.50:
+            pin_status = "📌 PRICE AT MAX PAIN — watch for chop / consolidation"
+            pin_color  = "#f39c12"
+        elif diff > 0:
+            pin_status = f"↑ Max pain ${max_pain_strike:.0f} is ABOVE price — gravitational pull UP"
+            pin_color  = "#2ecc71"
+        else:
+            pin_status = f"↓ Max pain ${max_pain_strike:.0f} is BELOW price — gravitational pull DOWN"
+            pin_color  = "#e74c3c"
+
+        # Top 5 strikes by open interest for the pain curve chart
+        pain_items = sorted(pain.items(), key=lambda x: x[0])
+
+        return {
+            "available":        True,
+            "symbol":           symbol,
+            "expiry":           expiry,
+            "days_to_exp":      days_to_exp,
+            "current_price":    round(price, 2),
+            "max_pain_strike":  max_pain_strike,
+            "diff":             round(diff, 2),
+            "diff_pct":         round(diff_pct, 1),
+            "pin_status":       pin_status,
+            "pin_color":        pin_color,
+            "pull_label":       pull_label,
+            "pull_color":       pull_color,
+            "pull_note":        pull_note,
+            "pain_strikes":     [x[0] for x in pain_items],
+            "pain_values":      [x[1] for x in pain_items],
+        }
+
+    except Exception:
+        return {"available": False}

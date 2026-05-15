@@ -43,6 +43,7 @@ try:
         get_iv_rank,
         get_rs_vs_spy,
         get_squeeze_score,
+        get_max_pain,
     )
 except ImportError:
     def get_options_snapshot(symbol: str) -> dict: return {"available": False}
@@ -52,6 +53,7 @@ except ImportError:
     def get_iv_rank(symbol: str) -> dict:          return {"available": False}
     def get_rs_vs_spy(symbol: str) -> dict:        return {"available": False}
     def get_squeeze_score(symbol: str) -> dict:    return {"available": False}
+    def get_max_pain(symbol: str) -> dict:         return {"available": False}
 import sheets_backend as _sheets
 
 load_dotenv()
@@ -738,6 +740,22 @@ with tab2:
                 else:
                     sq_html = "<p style='color:#8b92a8;'><small>Squeeze data loading…</small></p>"
 
+                # Max Pain (compact badge)
+                mp = get_max_pain(sym)
+                if mp.get("available"):
+                    mp_html = (
+                        f"<p style='margin:4px 0; font-size:12px;'>"
+                        f"<span style='color:{mp['pull_color']}; font-weight:bold;'>"
+                        f"📌 Max Pain ${mp['max_pain_strike']:.0f}</span> &nbsp;"
+                        f"<span style='color:{mp['pin_color']};'>"
+                        f"({mp['diff_pct']:+.1f}% from price)</span> &nbsp;"
+                        f"<span style='color:{mp['pull_color']}; font-size:11px;'>"
+                        f"{mp['pull_label']} · {mp['days_to_exp']}d to expiry"
+                        f"</span></p>"
+                    )
+                else:
+                    mp_html = ""
+
                 st.markdown(f"""
                 <div class="trade-card">
                 <h2>${sym}</h2>
@@ -748,6 +766,7 @@ with tab2:
                 {rs_html}
                 {iv_html}
                 {sq_html}
+                {mp_html}
                 <hr>
                 {liq_html}
                 <p><strong>Strategies:</strong> #163 VWAP · #172 Whole-$ · #177 BTC-sync</p>
@@ -1122,6 +1141,24 @@ with tab7:
             <p>{note}</p>
             </div>""", unsafe_allow_html=True)
 
+            # ── Max Pain check ────────────────────────────────────────────
+            mp_g = get_max_pain(ticker_g)
+            if mp_g.get("available"):
+                st.markdown(f"""
+                <div style="background:#1e2130; border-radius:8px; padding:10px 14px; margin-bottom:8px;">
+                <strong style="color:{mp_g['pull_color']};">
+                  📌 Max Pain: ${mp_g['max_pain_strike']:.0f} &nbsp;
+                  ({mp_g['diff_pct']:+.1f}% from ${mp_g['current_price']:.2f}) &nbsp;
+                  {mp_g['pull_label']}
+                </strong><br>
+                <span style="color:{mp_g['pin_color']}; font-size:13px;">
+                  {mp_g['pin_status']}
+                </span><br>
+                <span style="color:#8b92a8; font-size:12px;">
+                  {mp_g['pull_note']} &nbsp;·&nbsp; Expiry: {mp_g['expiry']} ({mp_g['days_to_exp']} days)
+                </span>
+                </div>""", unsafe_allow_html=True)
+
             # ── Relative Strength check ───────────────────────────────────
             rs_g = get_rs_vs_spy(ticker_g)
             if rs_g.get("available"):
@@ -1249,6 +1286,62 @@ with tab8:
             d_time   = st.time_input("Entry Time (CT)", value=datetime.strptime("08:35", "%H:%M").time())
 
         with c2:
+            # Max Pain chart — shows where price is being magnetically pulled
+            if d_tick:
+                mp_p = get_max_pain(d_tick)
+                if mp_p.get("available") and mp_p['pain_strikes']:
+                    st.markdown(f"""
+                    <div style="background:#1e2130; border-radius:8px;
+                                padding:10px 14px; margin-bottom:8px;">
+                    <strong style="color:{mp_p['pull_color']};">
+                      📌 Max Pain: ${mp_p['max_pain_strike']:.0f} &nbsp;
+                      {mp_p['pull_label']}
+                    </strong><br>
+                    <span style="color:{mp_p['pin_color']}; font-size:13px;">
+                      {mp_p['pin_status']}
+                    </span><br>
+                    <span style="color:#8b92a8; font-size:12px;">
+                      {mp_p['pull_note']}
+                    </span>
+                    </div>""", unsafe_allow_html=True)
+
+                    # Pain curve chart
+                    fig_mp = go.Figure()
+                    fig_mp.add_trace(go.Bar(
+                        x=mp_p['pain_strikes'],
+                        y=mp_p['pain_values'],
+                        marker_color=[
+                            "#e74c3c" if s == mp_p['max_pain_strike']
+                            else "#3498db"
+                            for s in mp_p['pain_strikes']
+                        ],
+                        name="Total Pain ($)",
+                    ))
+                    fig_mp.add_vline(
+                        x=mp_p['current_price'],
+                        line_color="#2ecc71", line_dash="dash",
+                        annotation_text=f"Price ${mp_p['current_price']:.2f}",
+                        annotation_font_color="#2ecc71",
+                    )
+                    fig_mp.add_vline(
+                        x=mp_p['max_pain_strike'],
+                        line_color="#e74c3c", line_dash="dot",
+                        annotation_text=f"Max Pain ${mp_p['max_pain_strike']:.0f}",
+                        annotation_font_color="#e74c3c",
+                    )
+                    fig_mp.update_layout(
+                        template='plotly_dark', height=220,
+                        margin=dict(l=10, r=10, t=10, b=30),
+                        xaxis_title="Strike",
+                        yaxis_title="Total Pain ($)",
+                        showlegend=False,
+                    )
+                    st.plotly_chart(fig_mp, use_container_width=True)
+                    st.caption(
+                        f"Red bar = max pain strike. Green dashed = current price. "
+                        f"Price is pulled toward the red bar as {mp_p['expiry']} approaches."
+                    )
+
             # IV Rank — show before the plan so you know what you're paying
             if d_tick:
                 iv_p = get_iv_rank(d_tick)
