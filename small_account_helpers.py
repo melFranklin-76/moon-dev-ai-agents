@@ -790,3 +790,125 @@ def get_max_pain(symbol: str) -> dict:
 
     except Exception:
         return {"available": False}
+
+
+# ── Intraday Sector Money Flow ─────────────────────────────────────────────────
+_SECTORS = {
+    'XLK':  'Technology',
+    'XLV':  'Healthcare',
+    'XLF':  'Financials',
+    'XLE':  'Energy',
+    'XLI':  'Industrials',
+    'XLY':  'Consumer Disc',
+    'XLP':  'Consumer Staples',
+    'XLB':  'Materials',
+    'XLC':  'Communications',
+    'XLU':  'Utilities',
+}
+
+
+@st.cache_data(ttl=60)
+def get_intraday_sector_flow() -> list:
+    """
+    Where is hot money rotating RIGHT NOW — last 30 minutes of sector action.
+
+    For each sector ETF:
+      - 30-min % change  (where it's been)
+      - RS vs SPY 30-min (outperforming or lagging the broad market)
+      - Acceleration     (is the move speeding up or fading?)
+      - Volume ratio     (last 30 min vs prior 30 min — confirms conviction)
+      - Arrow            (↑↑ surging · ↑ rising · → flat · ↓ fading · ↓↓ dumping)
+
+    Sorted by RS vs SPY so the hottest sector is always at the top.
+
+    Trading rule: if top-ranked sector has RS > +0.2% and vol_ratio > 1.2,
+    look for momentum setups in stocks from that sector first.
+    """
+    try:
+        # ── SPY baseline (30-min and 15-min segments) ─────────────────────────
+        spy_df = yf.Ticker('SPY').history(period='1d', interval='5m')
+        if len(spy_df) < 7:
+            return []
+        spy_30m  = float(
+            (spy_df['Close'].iloc[-1] - spy_df['Close'].iloc[-7]) /
+             spy_df['Close'].iloc[-7] * 100
+        )
+        spy_15m_r = float(
+            (spy_df['Close'].iloc[-1] - spy_df['Close'].iloc[-4]) /
+             spy_df['Close'].iloc[-4] * 100
+        )
+        spy_15m_p = float(
+            (spy_df['Close'].iloc[-4] - spy_df['Close'].iloc[-7]) /
+             spy_df['Close'].iloc[-7] * 100
+        )
+    except Exception:
+        return []
+
+    results = []
+    for sym, name in _SECTORS.items():
+        try:
+            df = yf.Ticker(sym).history(period='1d', interval='5m')
+            if len(df) < 7:
+                continue
+
+            close = df['Close']
+
+            # 30-min change
+            chg_30m = float(
+                (close.iloc[-1] - close.iloc[-7]) / close.iloc[-7] * 100
+            )
+
+            # Two 15-min halves for acceleration
+            chg_15m_r = float(
+                (close.iloc[-1] - close.iloc[-4]) / close.iloc[-4] * 100
+            )
+            chg_15m_p = float(
+                (close.iloc[-4] - close.iloc[-7]) / close.iloc[-7] * 100
+            )
+            accel = chg_15m_r - chg_15m_p   # positive = speeding up
+
+            # RS vs SPY for the last 30 min
+            rs_30m = chg_30m - spy_30m
+
+            # Volume conviction (last 30 min vs prior 30 min)
+            vol_now  = df['Volume'].iloc[-7:].sum()
+            vol_prev = df['Volume'].iloc[-14:-7].sum() if len(df) >= 14 else vol_now
+            vol_ratio = round(vol_now / vol_prev, 2) if vol_prev > 0 else 1.0
+
+            # Trend arrow
+            if accel > 0.15:   arrow = "↑↑"
+            elif accel > 0.03: arrow = "↑"
+            elif accel > -0.03: arrow = "→"
+            elif accel > -0.15: arrow = "↓"
+            else:               arrow = "↓↓"
+
+            # Flow label
+            if rs_30m > 0.3 and vol_ratio > 1.3:
+                flow_label, flow_color = "🔥 HOT INFLOW",  "#2ecc71"
+            elif rs_30m > 0.1:
+                flow_label, flow_color = "↗ INFLOW",       "#2ecc71"
+            elif rs_30m > -0.1:
+                flow_label, flow_color = "→ NEUTRAL",      "#8b92a8"
+            elif rs_30m > -0.3:
+                flow_label, flow_color = "↘ OUTFLOW",      "#e74c3c"
+            else:
+                flow_label, flow_color = "🧊 COLD DUMP",   "#e74c3c"
+
+            results.append({
+                "symbol":     sym,
+                "name":       name,
+                "price":      round(float(close.iloc[-1]), 2),
+                "chg_30m":   round(chg_30m, 3),
+                "rs_30m":    round(rs_30m, 3),
+                "accel":     round(accel, 3),
+                "arrow":     arrow,
+                "vol_ratio": vol_ratio,
+                "flow_label": flow_label,
+                "flow_color": flow_color,
+            })
+
+        except Exception:
+            continue
+
+    results.sort(key=lambda x: x['rs_30m'], reverse=True)
+    return results

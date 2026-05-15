@@ -44,16 +44,18 @@ try:
         get_rs_vs_spy,
         get_squeeze_score,
         get_max_pain,
+        get_intraday_sector_flow,
     )
 except ImportError:
-    def get_options_snapshot(symbol: str) -> dict: return {"available": False}
-    def get_news(symbol: str) -> list:             return []
-    def send_ntfy(*a, **kw):                       pass
-    def scan_premarket_gaps(*a, **kw) -> list:     return []
-    def get_iv_rank(symbol: str) -> dict:          return {"available": False}
-    def get_rs_vs_spy(symbol: str) -> dict:        return {"available": False}
-    def get_squeeze_score(symbol: str) -> dict:    return {"available": False}
-    def get_max_pain(symbol: str) -> dict:         return {"available": False}
+    def get_options_snapshot(symbol: str) -> dict:   return {"available": False}
+    def get_news(symbol: str) -> list:               return []
+    def send_ntfy(*a, **kw):                         pass
+    def scan_premarket_gaps(*a, **kw) -> list:       return []
+    def get_iv_rank(symbol: str) -> dict:            return {"available": False}
+    def get_rs_vs_spy(symbol: str) -> dict:          return {"available": False}
+    def get_squeeze_score(symbol: str) -> dict:      return {"available": False}
+    def get_max_pain(symbol: str) -> dict:           return {"available": False}
+    def get_intraday_sector_flow() -> list:          return []
 import sheets_backend as _sheets
 
 load_dotenv()
@@ -604,6 +606,25 @@ with tab1:
             """, unsafe_allow_html=True)
 
     with col_right:
+        # Hot money alert — top sector right now
+        _flow = get_intraday_sector_flow()
+        if _flow:
+            _hot  = _flow[0]
+            _cold = _flow[-1]
+            st.markdown(
+                f"<div style='background:#1e2130; border-radius:8px; "
+                f"padding:8px 12px; margin-bottom:8px;'>"
+                f"<span style='color:{_hot['flow_color']}; font-weight:bold;'>"
+                f"🔥 HOT MONEY → {_hot['name']} ({_hot['symbol']}) "
+                f"{_hot['arrow']} RS {_hot['rs_30m']:+.2f}% · "
+                f"vol {_hot['vol_ratio']:.1f}x</span><br>"
+                f"<span style='color:{_cold['flow_color']}; font-size:12px;'>"
+                f"🧊 COLD: {_cold['name']} ({_cold['symbol']}) "
+                f"RS {_cold['rs_30m']:+.2f}%</span>"
+                f"</div>",
+                unsafe_allow_html=True
+            )
+
         st.markdown("#### Pre-Market Checklist")
         checklist = [
             "Mark PM High/Low",
@@ -1066,6 +1087,63 @@ with tab6:
                 </div>""", unsafe_allow_html=True)
     else:
         st.info("Sector data loading…")
+
+    # ── Intraday Sector Money Flow ─────────────────────────────────────────────
+    st.markdown("---")
+    st.markdown("### 💸 Intraday Money Flow — Last 30 Minutes")
+    st.caption("Where hot money rotated RIGHT NOW vs daily % change. Updated every 60 seconds.")
+
+    flow = get_intraday_sector_flow()
+    if flow:
+        # Bar chart: RS vs SPY for last 30 min
+        fig_flow = go.Figure()
+        flow_colors = [r['flow_color'] for r in flow]
+        fig_flow.add_trace(go.Bar(
+            x=[f"{r['arrow']} {r['symbol']}" for r in flow],
+            y=[r['rs_30m'] for r in flow],
+            marker_color=flow_colors,
+            text=[
+                f"{r['rs_30m']:+.2f}%<br>{r['vol_ratio']:.1f}x vol"
+                for r in flow
+            ],
+            textposition='outside',
+        ))
+        fig_flow.add_hline(y=0, line_color='#8b92a8', line_dash='dash')
+        fig_flow.update_layout(
+            template='plotly_dark', height=280,
+            margin=dict(l=10, r=10, t=10, b=10),
+            xaxis_title="Sector",
+            yaxis_title="RS vs SPY (30 min) %",
+            showlegend=False,
+        )
+        st.plotly_chart(fig_flow, use_container_width=True)
+
+        # Detail table
+        flow_cols = st.columns(5)
+        for i, r in enumerate(flow[:5]):
+            with flow_cols[i]:
+                st.markdown(
+                    f"<div style='background:#1e2130; border-radius:8px; "
+                    f"padding:8px; text-align:center;'>"
+                    f"<strong style='color:{r['flow_color']};'>{r['symbol']}</strong><br>"
+                    f"<small>{r['name']}</small><br>"
+                    f"<span style='color:{r['flow_color']}; font-size:18px; font-weight:bold;'>"
+                    f"{r['arrow']} {r['rs_30m']:+.2f}%</span><br>"
+                    f"<small style='color:#8b92a8;'>30m: {r['chg_30m']:+.2f}% "
+                    f"· vol {r['vol_ratio']:.1f}x</small><br>"
+                    f"<small style='color:{r['flow_color']};'>{r['flow_label']}</small>"
+                    f"</div>",
+                    unsafe_allow_html=True
+                )
+
+        st.markdown("---")
+        st.markdown(
+            "**Reading this:** Bars above 0 = sector outperforming SPY right now. "
+            "↑↑ = accelerating. High vol ratio = institutional conviction behind the move. "
+            "Trade stocks from the top-ranked sector first."
+        )
+    else:
+        st.info("Market data loading… check back after 9:30 AM ET open.")
 
     # Hot sectors note
     st.markdown("---")
