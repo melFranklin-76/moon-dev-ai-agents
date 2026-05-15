@@ -45,6 +45,7 @@ try:
         get_squeeze_score,
         get_max_pain,
         get_intraday_sector_flow,
+        get_signal_strength,
     )
 except ImportError:
     def get_options_snapshot(symbol: str) -> dict:   return {"available": False}
@@ -56,6 +57,9 @@ except ImportError:
     def get_squeeze_score(symbol: str) -> dict:      return {"available": False}
     def get_max_pain(symbol: str) -> dict:           return {"available": False}
     def get_intraday_sector_flow() -> list:          return []
+    def get_signal_strength(symbol: str) -> dict:
+        return {"score": 0, "grade": "—", "color": "#8b92a8",
+                "emoji": "⬜", "stars": "☆"*10, "advice": "", "detail": {}}
 import sheets_backend as _sheets
 
 load_dotenv()
@@ -69,18 +73,44 @@ st.set_page_config(
 )
 
 st.markdown("""<style>
+    /* ── Base ── */
     .main {background-color: #0e1117;}
     .stMetric {background-color: #1e2130; padding: 15px; border-radius: 10px;}
     .stMetric label {color: #8b92a8 !important; font-size: 14px !important;}
     .stMetric [data-testid="stMetricValue"] {color: #ffffff !important; font-size: 32px !important;}
-    .green-box {background-color: #1a3d1a; padding: 15px; border-radius: 10px; border: 2px solid #2ecc71; margin-bottom: 12px;}
-    .red-box {background-color: #3d1a1a; padding: 15px; border-radius: 10px; border: 2px solid #e74c3c; margin-bottom: 12px;}
+    .green-box  {background-color: #1a3d1a; padding: 15px; border-radius: 10px; border: 2px solid #2ecc71; margin-bottom: 12px;}
+    .red-box    {background-color: #3d1a1a; padding: 15px; border-radius: 10px; border: 2px solid #e74c3c; margin-bottom: 12px;}
     .yellow-box {background-color: #3d361a; padding: 15px; border-radius: 10px; border: 2px solid #f39c12; margin-bottom: 12px;}
     .trade-card {background-color: #1e2130; padding: 20px; border-radius: 10px; margin: 10px 0;}
     h1 {color: #2ecc71 !important;}
     h2 {color: #3498db !important;}
     h3 {color: #f39c12 !important;}
     .big-text {font-size: 40px; font-weight: bold; text-align: center;}
+
+    /* ── Simple Mode cards (mobile-first) ── */
+    .simple-card {
+        background: #1e2130;
+        border-radius: 14px;
+        padding: 18px 16px;
+        margin: 8px 0;
+        border: 1px solid #2a2d3e;
+    }
+    .simple-ticker  {font-size: 22px; font-weight: 800; color: #ffffff; letter-spacing: 1px;}
+    .simple-price   {font-size: 36px; font-weight: 700; text-align: center; margin: 6px 0;}
+    .simple-change  {font-size: 16px; text-align: center; margin-bottom: 8px;}
+    .simple-signal  {font-size: 28px; font-weight: 900; text-align: center;
+                     padding: 10px; border-radius: 10px; margin: 8px 0;}
+    .simple-stars   {font-size: 20px; text-align: center; letter-spacing: 2px;}
+    .simple-advice  {font-size: 13px; color: #8b92a8; text-align: center; margin-top: 6px;}
+    .simple-layers  {font-size: 12px; color: #8b92a8; margin-top: 8px; line-height: 1.8;}
+
+    /* ── Mobile responsive ── */
+    @media (max-width: 768px) {
+        .simple-price  {font-size: 44px;}
+        .simple-signal {font-size: 32px;}
+        .stButton button {height: 52px !important; font-size: 18px !important;}
+        .stTabs [data-baseweb="tab"] {font-size: 13px !important; padding: 8px 6px !important;}
+    }
 </style>""", unsafe_allow_html=True)
 
 # ── Constants ─────────────────────────────────────────────────────────────────
@@ -168,9 +198,10 @@ defaults = {
     'daily_pnl':        round(_daily_pnl, 2),
     'daily_reds':       _today_reds,
     'watchlist':        [],
-    'selected_ticker':  '',   # set when ➕ is clicked — auto-fills other tabs
-    'ntfy_topic':       '',   # ntfy.sh push notification channel
-    'news_cache':       {},   # {symbol: [headlines]} populated on ➕ click
+    'selected_ticker':  '',       # set when ➕ is clicked — auto-fills other tabs
+    'ntfy_topic':       '',       # ntfy.sh push notification channel
+    'news_cache':       {},       # {symbol: [headlines]} populated on ➕ click
+    'view_mode':        'Simple', # 'Simple' | 'Pro'
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -675,6 +706,7 @@ with tab2:
         </div>
         """, unsafe_allow_html=True)
     else:
+        _vm = st.session_state.get('view_mode', 'Simple')
         cols = st.columns(min(len(_watchlist), 3))
         for i, sym in enumerate(_watchlist):
             snap  = snapshots.get(sym, {"symbol": sym, "price": 0, "change": 0, "volume": "N/A", "vwap": 0, "bars": pd.DataFrame()})
@@ -688,6 +720,37 @@ with tab2:
                 vwap_label = "VWAP N/A"
 
             with cols[i % 3]:
+                # ── SIMPLE MODE ───────────────────────────────────────────────
+                if _vm == 'Simple':
+                    ss = get_signal_strength(sym)
+                    sig_bg = f"{ss['color']}22"
+                    d = ss['detail']
+                    layers_html = "".join([
+                        f"<span style='color:{d['rs']['color']};'>RS {d['rs']['note']}</span> &nbsp;·&nbsp; ",
+                        f"<span style='color:{d['iv']['color']};'>IV {d['iv']['note']}</span> &nbsp;·&nbsp; ",
+                        f"<span style='color:{d['mp']['color']};'>{d['mp']['note']}</span><br>",
+                        f"<span style='color:{d['sq']['color']};'>Squeeze {d['sq']['note']}</span> &nbsp;·&nbsp; ",
+                        f"<span style='color:#8b92a8;'>Liq {d['liq']['note']}</span>",
+                    ])
+                    vwap_color = "#2ecc71" if price > vwap and vwap > 0 else "#e74c3c" if vwap > 0 else "#8b92a8"
+                    st.markdown(f"""
+                    <div class="simple-card">
+                      <div class="simple-ticker">{sym}</div>
+                      <div class="simple-price" style="color:{color};">${price:.2f}</div>
+                      <div class="simple-change" style="color:{color};">{icon} {snap['change']:+.1f}% &nbsp;·&nbsp;
+                        <span style="color:{vwap_color};">{vwap_label}</span>
+                      </div>
+                      <div class="simple-signal" style="background:{sig_bg}; color:{ss['color']}; border:2px solid {ss['color']};">
+                        {ss['emoji']} {ss['score']}/10 — {ss['grade']}
+                      </div>
+                      <div class="simple-stars" style="color:{ss['color']};">{ss['stars']}</div>
+                      <div class="simple-advice">{ss['advice']}</div>
+                      <div class="simple-layers">{layers_html}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    continue   # skip Pro block below
+
+                # ── PRO MODE ──────────────────────────────────────────────────
                 # Options liquidity check
                 opt = get_options_snapshot(sym)
                 if opt.get("available"):
@@ -1618,6 +1681,24 @@ with tab9:
 with st.sidebar:
     st.markdown("## ⚙️ Settings")
 
+    # ── Simple / Pro Mode Toggle ──────────────────────────────────────────────
+    st.markdown("### 👁️ View Mode")
+    _mode_choice = st.radio(
+        "Choose your view:",
+        ["🟢 Simple", "🔬 Pro"],
+        index=0 if st.session_state.get('view_mode', 'Simple') == 'Simple' else 1,
+        horizontal=True,
+        key="mode_radio",
+        help="Simple = clean signal card. Pro = all 5 insider layers.",
+    )
+    st.session_state['view_mode'] = 'Simple' if _mode_choice == '🟢 Simple' else 'Pro'
+    _simple = st.session_state['view_mode'] == 'Simple'
+    if _simple:
+        st.caption("📱 Simple Mode — clean cards, perfect for mobile. One score tells the story.")
+    else:
+        st.caption("🔬 Pro Mode — all 5 insider layers visible. For when you want the full picture.")
+
+    st.markdown("---")
     # ── Account Balance ───────────────────────────────────────────────────────
     st.markdown("### 💰 Starting Balance")
     st.caption("Set your actual Webull starting balance. The dashboard adds/subtracts trade P/L automatically.")

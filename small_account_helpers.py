@@ -912,3 +912,131 @@ def get_intraday_sector_flow() -> list:
 
     results.sort(key=lambda x: x['rs_30m'], reverse=True)
     return results
+
+
+# ── Composite Signal Strength (Simple Mode) ────────────────────────────────────
+def get_signal_strength(symbol: str) -> dict:
+    """
+    Aggregate all 5 insider layers into one 0–10 score for Simple Mode.
+
+    Layer weights:
+      RS vs SPY     0–2 pts  (confirms market tailwind)
+      IV Rank       0–2 pts  (options are cheap = good, rich = bad)
+      Squeeze Score 0–2 pts  (short squeeze potential)
+      Max Pain      0–2 pts  (price moving toward max pain = tailwind)
+      Liquidity     0–2 pts  (can actually trade the option)
+
+    Grade:
+      8–10 → 🟢 STRONG SETUP   — all systems green, high confidence
+      5–7  → 🟡 MODERATE        — tradeable but check the weak layers
+      0–4  → 🔴 WEAK / SKIP     — one or more critical layers failing
+
+    Designed for Simple Mode cards and the future iPhone app.
+    Each sub-score is explained so the user knows exactly WHY.
+    """
+    score  = 0
+    detail = {}
+
+    # ── 1. RS vs SPY (0–2) ───────────────────────────────────────────────────
+    rs = get_rs_vs_spy(symbol)
+    if rs.get("available"):
+        if rs['score'] >= 7:
+            rs_pts, rs_note = 2, "Market confirming ✅"
+        elif rs['score'] >= 5:
+            rs_pts, rs_note = 1, "Neutral vs market"
+        else:
+            rs_pts, rs_note = 0, "Lagging market ❌"
+    else:
+        rs_pts, rs_note = 1, "RS data unavailable"
+    score += rs_pts
+    detail['rs'] = {'pts': rs_pts, 'note': rs_note,
+                    'label': rs.get('label', '—'), 'color': rs.get('color', '#8b92a8')}
+
+    # ── 2. IV Rank (0–2) ─────────────────────────────────────────────────────
+    iv = get_iv_rank(symbol)
+    if iv.get("available"):
+        if iv['grade'] == 'CHEAP':
+            iv_pts, iv_note = 2, "Options cheap ✅"
+        elif iv['grade'] == 'FAIR':
+            iv_pts, iv_note = 1, "Options fairly priced"
+        else:
+            iv_pts, iv_note = 0, "Options overpriced ❌"
+    else:
+        iv_pts, iv_note = 1, "IV data unavailable"
+    score += iv_pts
+    detail['iv'] = {'pts': iv_pts, 'note': iv_note,
+                    'grade': iv.get('grade', '—'), 'color': iv.get('color', '#8b92a8')}
+
+    # ── 3. Squeeze Score (0–2) ───────────────────────────────────────────────
+    sq = get_squeeze_score(symbol)
+    if sq.get("available"):
+        if sq['score'] >= 60:
+            sq_pts, sq_note = 2, "Squeeze fuel ✅"
+        elif sq['score'] >= 30:
+            sq_pts, sq_note = 1, "Some short pressure"
+        else:
+            sq_pts, sq_note = 0, "Low squeeze potential"
+    else:
+        sq_pts, sq_note = 0, "Squeeze data unavailable"
+    score += sq_pts
+    detail['sq'] = {'pts': sq_pts, 'note': sq_note,
+                    'score': sq.get('score', 0), 'color': sq.get('color', '#8b92a8')}
+
+    # ── 4. Max Pain direction (0–2) ──────────────────────────────────────────
+    mp = get_max_pain(symbol)
+    if mp.get("available"):
+        if mp['diff'] > 0.5:          # max pain above price = pull up
+            mp_pts, mp_note = 2, "Max pain pulling UP ✅"
+        elif abs(mp['diff']) <= 0.5:  # at max pain = pin risk
+            mp_pts, mp_note = 1, "At max pain — chop risk"
+        else:                          # max pain below = pull down
+            mp_pts, mp_note = 0, "Max pain pulling DOWN ❌"
+    else:
+        mp_pts, mp_note = 1, "Max pain data unavailable"
+    score += mp_pts
+    detail['mp'] = {'pts': mp_pts, 'note': mp_note,
+                    'strike': mp.get('max_pain_strike', 0),
+                    'color': mp.get('pull_color', '#8b92a8')}
+
+    # ── 5. Options Liquidity (0–2) ───────────────────────────────────────────
+    opt = get_options_snapshot(symbol)
+    if opt.get("available") and opt.get("calls"):
+        any_liquid = any(r['liquid'] for r in opt['calls'])
+        if any_liquid:
+            liq_pts, liq_note = 2, "Options liquid ✅"
+        else:
+            liq_pts, liq_note = 0, "Wide spreads / low OI ❌"
+    else:
+        liq_pts, liq_note = 1, "Liquidity data unavailable"
+    score += liq_pts
+    detail['liq'] = {'pts': liq_pts, 'note': liq_note}
+
+    # ── Grade ─────────────────────────────────────────────────────────────────
+    if score >= 8:
+        grade, color, emoji, advice = (
+            "STRONG SETUP", "#2ecc71", "🟢",
+            "All systems green. High confidence — trade your plan."
+        )
+    elif score >= 5:
+        grade, color, emoji, advice = (
+            "MODERATE", "#f39c12", "🟡",
+            "Tradeable but check the weak layers below before entering."
+        )
+    else:
+        grade, color, emoji, advice = (
+            "WEAK / SKIP", "#e74c3c", "🔴",
+            "Too many red flags. Better setups will come — wait."
+        )
+
+    stars = "★" * score + "☆" * (10 - score)
+
+    return {
+        "symbol": symbol,
+        "score":  score,
+        "grade":  grade,
+        "color":  color,
+        "emoji":  emoji,
+        "stars":  stars,
+        "advice": advice,
+        "detail": detail,
+    }
