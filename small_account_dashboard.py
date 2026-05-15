@@ -42,6 +42,7 @@ try:
         scan_premarket_gaps,
         get_iv_rank,
         get_rs_vs_spy,
+        get_squeeze_score,
     )
 except ImportError:
     def get_options_snapshot(symbol: str) -> dict: return {"available": False}
@@ -50,6 +51,7 @@ except ImportError:
     def scan_premarket_gaps(*a, **kw) -> list:     return []
     def get_iv_rank(symbol: str) -> dict:          return {"available": False}
     def get_rs_vs_spy(symbol: str) -> dict:        return {"available": False}
+    def get_squeeze_score(symbol: str) -> dict:    return {"available": False}
 import sheets_backend as _sheets
 
 load_dotenv()
@@ -460,13 +462,24 @@ with tab1:
         st.caption("⚠️ Confirm open interest > 200 and bid/ask spread < 10% on Webull before entering any trade.")
 
         for r in universe:
-            rc1, rc2, rc3, rc4, rc5, rc6 = st.columns([1, 2, 1, 1, 1, 1])
+            rc1, rc2, rc3, rc4, rc5, rc6, rc7 = st.columns([1, 2, 1, 1, 1, 1, 1])
             rc1.markdown(f"**{r['symbol']}**")
             rc2.markdown(f"<small>{r['name'][:28]}</small>", unsafe_allow_html=True)
             rc3.markdown(f"**${r['price']:.2f}**")
             rc4.markdown(f"<span style='color:#2ecc71'>+{r['change']:.1f}%</span>", unsafe_allow_html=True)
             rc5.markdown(f"{r['rel_vol']:.1f}x vol")
-            if rc6.button("➕", key=f"add_uni_{r['symbol']}"):
+            # Squeeze score inline
+            sq_r = get_squeeze_score(r['symbol'])
+            if sq_r.get("available"):
+                sq_color = sq_r['color']
+                rc6.markdown(
+                    f"<span style='color:{sq_color}; font-weight:bold;'>"
+                    f"{sq_r['emoji']}{sq_r['score']}</span>",
+                    unsafe_allow_html=True
+                )
+            else:
+                rc6.markdown("—")
+            if rc7.button("➕", key=f"add_uni_{r['symbol']}"):
                 if r['symbol'] not in st.session_state.watchlist:
                     st.session_state.watchlist.append(r['symbol'])
                 st.session_state.selected_ticker = r['symbol']
@@ -706,6 +719,25 @@ with tab2:
                 else:
                     rs_html = "<p style='color:#8b92a8;'><small>RS data loading…</small></p>"
 
+                # Squeeze Score
+                sq = get_squeeze_score(sym)
+                if sq.get("available"):
+                    sq_bar = min(sq['score'], 100)
+                    sq_html = (
+                        f"<p style='margin:4px 0;'>"
+                        f"<span style='background:{sq['color']}22; color:{sq['color']}; "
+                        f"border:1px solid {sq['color']}; border-radius:5px; "
+                        f"padding:2px 8px; font-weight:bold; font-size:13px;'>"
+                        f"{sq['emoji']} SQUEEZE {sq['score']}/100 — {sq['grade']}</span></p>"
+                        f"<p style='color:#8b92a8; font-size:11px; margin:2px 0;'>"
+                        f"Float: {sq['float_label']} &nbsp;·&nbsp; "
+                        f"Short: {sq['si_label']} &nbsp;·&nbsp; "
+                        f"DTC: {sq['dtc_label']}</p>"
+                        f"<p style='color:#8b92a8; font-size:11px; margin:2px 0;'>{sq['advice']}</p>"
+                    )
+                else:
+                    sq_html = "<p style='color:#8b92a8;'><small>Squeeze data loading…</small></p>"
+
                 st.markdown(f"""
                 <div class="trade-card">
                 <h2>${sym}</h2>
@@ -715,6 +747,7 @@ with tab2:
                 <hr>
                 {rs_html}
                 {iv_html}
+                {sq_html}
                 <hr>
                 {liq_html}
                 <p><strong>Strategies:</strong> #163 VWAP · #172 Whole-$ · #177 BTC-sync</p>

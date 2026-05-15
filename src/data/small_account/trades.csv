@@ -1,0 +1,3 @@
+date,ticker,strategy,side,entry,exit,pnl,result,notes
+2026-05-14T10:05:00,ONDS,162. Premarket High Retest-and-Go,Call,0.26,0.37,11.0,Green,Palantir-backed catalyst - drone revenue up 1065% - FY2026 guidance raised. Took profit at target +42%. Stock kept going but followed the plan.
+2026-05-14T10:21:00,OSG,162. Premarket High Retest-and-Go,Call,0.17,0.075,-9.5,Red,Held past -30% stop loss hoping for recovery. Cut at -56%. Tendency: cut losers at -30% no exceptions no hoping.

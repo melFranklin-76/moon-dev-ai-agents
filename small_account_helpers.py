@@ -547,3 +547,128 @@ def get_rs_vs_spy(symbol: str) -> dict:
 
     except Exception:
         return {"available": False}
+
+
+# ── Float + Short Interest / Squeeze Score ────────────────────────────────────
+@st.cache_data(ttl=3600)   # float/SI data updates daily — cache 1 hour
+def get_squeeze_score(symbol: str) -> dict:
+    """
+    Squeeze Score: Float + Short Interest = potential energy for a short squeeze.
+
+    Low float (few shares) + high short interest (many shorts trapped) +
+    a catalyst = the recipe for a 20-100%+ intraday move.
+
+    Scoring (0-100):
+      Float component  (40 pts max):
+        < 5M shares  → 40 pts   🔥 micro-float
+        < 10M        → 30 pts
+        < 50M        → 15 pts
+        < 100M       →  5 pts
+        >= 100M      →  0 pts
+
+      Short Interest % of float  (40 pts max):
+        > 30%  → 40 pts   heavy short load
+        > 20%  → 30 pts
+        > 10%  → 20 pts
+        >  5%  → 10 pts
+        <=  5% →  0 pts
+
+      Days to Cover / Short Ratio  (20 pts max):
+        > 5 days → 20 pts   shorts can't exit fast
+        > 3 days → 10 pts
+        > 1 day  →  5 pts
+
+    Grade:
+      75-100 → 🔥 SQUEEZE CANDIDATE
+      50-74  → ⚡ ELEVATED PRESSURE
+      25-49  → 📊 MODERATE
+       0-24  → ➖ LOW
+    """
+    try:
+        info = yf.Ticker(symbol).info
+
+        float_shares = int(info.get('floatShares', 0) or 0)
+        shares_short = int(info.get('sharesShort', 0) or 0)
+        short_ratio  = float(info.get('shortRatio', 0) or 0)       # days to cover
+        short_pct    = float(info.get('shortPercentOfFloat', 0) or 0) * 100
+
+        if float_shares == 0:
+            return {"available": False}
+
+        # ── Float score ───────────────────────────────────────────────────────
+        if float_shares < 5_000_000:
+            float_pts, float_label = 40, f"{float_shares/1e6:.1f}M 🔥 MICRO"
+        elif float_shares < 10_000_000:
+            float_pts, float_label = 30, f"{float_shares/1e6:.1f}M 🔥 LOW"
+        elif float_shares < 50_000_000:
+            float_pts, float_label = 15, f"{float_shares/1e6:.0f}M moderate"
+        elif float_shares < 100_000_000:
+            float_pts, float_label = 5,  f"{float_shares/1e6:.0f}M large"
+        else:
+            float_pts, float_label = 0,  f"{float_shares/1e6:.0f}M heavy"
+
+        # ── Short Interest score ──────────────────────────────────────────────
+        if short_pct > 30:
+            si_pts, si_label = 40, f"{short_pct:.1f}% 🔥 HEAVILY SHORTED"
+        elif short_pct > 20:
+            si_pts, si_label = 30, f"{short_pct:.1f}% HIGH"
+        elif short_pct > 10:
+            si_pts, si_label = 20, f"{short_pct:.1f}% elevated"
+        elif short_pct > 5:
+            si_pts, si_label = 10, f"{short_pct:.1f}% moderate"
+        else:
+            si_pts, si_label = 0,  f"{short_pct:.1f}% low"
+
+        # ── Days-to-cover score ───────────────────────────────────────────────
+        if short_ratio > 5:
+            dtc_pts, dtc_label = 20, f"{short_ratio:.1f} days 🔥 trapped"
+        elif short_ratio > 3:
+            dtc_pts, dtc_label = 10, f"{short_ratio:.1f} days elevated"
+        elif short_ratio > 1:
+            dtc_pts, dtc_label =  5, f"{short_ratio:.1f} days moderate"
+        else:
+            dtc_pts, dtc_label =  0, f"{short_ratio:.1f} days easy cover"
+
+        total = float_pts + si_pts + dtc_pts
+
+        # ── Grade ─────────────────────────────────────────────────────────────
+        if total >= 75:
+            grade, color, emoji = "SQUEEZE CANDIDATE", "#2ecc71", "🔥"
+            advice = (
+                "Low float + heavy short load = one catalyst away from a "
+                "violent squeeze. Watch for volume spike as the trigger."
+            )
+        elif total >= 50:
+            grade, color, emoji = "ELEVATED PRESSURE", "#f39c12", "⚡"
+            advice = (
+                "Significant short interest. A strong catalyst could force "
+                "covering and amplify the move beyond the normal range."
+            )
+        elif total >= 25:
+            grade, color, emoji = "MODERATE", "#8b92a8", "📊"
+            advice = "Some short pressure but not squeeze territory."
+        else:
+            grade, color, emoji = "LOW", "#8b92a8", "➖"
+            advice = "High float or low short interest — moves driven by buyers, not shorts covering."
+
+        return {
+            "available":    True,
+            "symbol":       symbol,
+            "float_shares": float_shares,
+            "float_label":  float_label,
+            "float_pts":    float_pts,
+            "short_pct":    round(short_pct, 1),
+            "si_label":     si_label,
+            "si_pts":       si_pts,
+            "short_ratio":  round(short_ratio, 1),
+            "dtc_label":    dtc_label,
+            "dtc_pts":      dtc_pts,
+            "score":        total,
+            "grade":        grade,
+            "color":        color,
+            "emoji":        emoji,
+            "advice":       advice,
+        }
+
+    except Exception:
+        return {"available": False}
