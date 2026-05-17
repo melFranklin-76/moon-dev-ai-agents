@@ -46,6 +46,7 @@ try:
         get_max_pain,
         get_intraday_sector_flow,
         get_signal_strength,
+        get_best_buy_strike,
     )
 except ImportError:
     def get_options_snapshot(symbol: str) -> dict:   return {"available": False}
@@ -60,6 +61,7 @@ except ImportError:
     def get_signal_strength(symbol: str) -> dict:
         return {"score": 0, "grade": "—", "color": "#8b92a8",
                 "emoji": "⬜", "stars": "☆"*10, "advice": "", "detail": {}}
+    def get_best_buy_strike(symbol: str) -> dict:    return {"available": False}
 import sheets_backend as _sheets
 
 load_dotenv()
@@ -840,6 +842,33 @@ with tab2:
                 else:
                     mp_html = ""
 
+                # Best Buy Strike — IV surface fit, find cheapest call to buy
+                bbs = get_best_buy_strike(sym)
+                if bbs.get("available"):
+                    spread     = round(bbs['ask'] - bbs['bid'], 2)
+                    spread_pct = round(spread / ((bbs['bid'] + bbs['ask']) / 2) * 100, 0) if (bbs['bid'] + bbs['ask']) > 0 else 0
+                    bbs_html = (
+                        f"<p style='margin:6px 0 2px 0;'>"
+                        f"<span style='background:{bbs['color']}22; color:{bbs['color']}; "
+                        f"border:1px solid {bbs['color']}; border-radius:5px; "
+                        f"padding:2px 8px; font-weight:bold; font-size:13px;'>"
+                        f"🎯 BEST BUY CALL: ${bbs['best_strike']:.2f} &nbsp;·&nbsp; "
+                        f"{bbs['emoji']} {bbs['grade']}</span></p>"
+                        f"<p style='color:#8b92a8; font-size:11px; margin:2px 0;'>"
+                        f"IV: <strong style='color:#fff;'>{bbs['iv_pct']}%</strong> &nbsp;·&nbsp; "
+                        f"Surface: {bbs['fitted_iv_pct']}% &nbsp;·&nbsp; "
+                        f"Discount: <strong style='color:{bbs['color']};'>{bbs['residual_pp']:+.1f} PP</strong> &nbsp;·&nbsp; "
+                        f"Δ{bbs['delta']:.2f} &nbsp;·&nbsp; "
+                        f"OI: {bbs['oi']:,} &nbsp;·&nbsp; "
+                        f"${bbs['bid']:.2f}×${bbs['ask']:.2f} "
+                        f"<span style='color:#f39c12;'>(spread {spread_pct:.0f}%)</span>"
+                        f"</p>"
+                        f"<p style='color:#8b92a8; font-size:11px; margin:2px 0;'>"
+                        f"{bbs['advice']}</p>"
+                    )
+                else:
+                    bbs_html = ""
+
                 st.markdown(f"""
                 <div class="trade-card">
                 <h2>${sym}</h2>
@@ -851,6 +880,7 @@ with tab2:
                 {iv_html}
                 {sq_html}
                 {mp_html}
+                {bbs_html}
                 <hr>
                 {liq_html}
                 <p><strong>Strategies:</strong> #163 VWAP · #172 Whole-$ · #177 BTC-sync</p>

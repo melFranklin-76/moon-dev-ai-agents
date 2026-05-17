@@ -6,6 +6,7 @@ Helper functions for Small Account Dashboard v3.0
 """
 
 import csv
+import math
 import numpy as np
 import requests
 import streamlit as st
@@ -1040,3 +1041,137 @@ def get_signal_strength(symbol: str) -> dict:
         "advice": advice,
         "detail": detail,
     }
+
+
+# ── Best Buy Strike (IV Surface Fitting) ──────────────────────────────────────
+@st.cache_data(ttl=300)
+def get_best_buy_strike(symbol: str) -> dict:
+    """
+    Find the best-value CALL to BUY on the nearest expiry.
+
+    Method:
+      1. Pull the calls chain for the nearest expiry.
+      2. Filter to strikes within 70%–150% of spot with valid IV.
+      3. Fit a quadratic (smile) curve to the (strike, IV) data.
+      4. Compute residuals: actual_IV − fitted_IV for every strike.
+      5. The most-negative residual = strike priced cheapest vs its neighbors.
+
+    A negative residual means that option is on sale relative to what the
+    volatility smile implies it should cost.  The larger the discount (in
+    percentage-point terms, PP), the better the value for a call BUYER.
+
+    Grades:
+      VERY CHEAP  < −5 PP  → genuine mispricing, check OI / bid-ask first
+      CHEAP       < −3 PP  → solid discount, worth prioritising
+      SLIGHT DISC < −1 PP  → minor edge, trade on signal merit
+      FAIR              else → uniformly priced chain, no relative edge
+    """
+    try:
+        t    = yf.Ticker(symbol)
+        exps = t.options
+        if not exps:
+            return {"available": False}
+
+        # ── 1. Current price ──────────────────────────────────────────────────
+        hist = t.history(period='2d', interval='1d')
+        if hist.empty:
+            return {"available": False}
+        price = float(hist['Close'].iloc[-1])
+
+        # ── 2. Nearest expiry calls, cleaned ──────────────────────────────────
+        chain = t.option_chain(exps[0])
+        calls = chain.calls.copy()
+        calls = calls[
+            (calls['impliedVolatility'] > 0.01) &
+            (calls['strike'] >= price * 0.70) &
+            (calls['strike'] <= price * 1.50)
+        ].reset_index(drop=True)
+
+        if len(calls) < 5:
+            return {"available": False}
+
+        strikes = calls['strike'].values.astype(float)
+        ivs     = calls['impliedVolatility'].values.astype(float)
+
+        # ── 3. Fit quadratic smile ────────────────────────────────────────────
+        coeffs     = np.polyfit(strikes, ivs, 2)
+        fitted_ivs = np.polyval(coeffs, strikes)
+
+        # ── 4. Residuals (negative = cheaper than the smile suggests) ─────────
+        residuals = ivs - fitted_ivs
+
+        # ── 5. Best buy = most negative residual ──────────────────────────────
+        best_idx       = int(np.argmin(residuals))
+        best_strike    = float(strikes[best_idx])
+        best_iv        = float(ivs[best_idx])
+        best_fitted_iv = float(fitted_ivs[best_idx])
+        residual_pp    = float(residuals[best_idx]) * 100   # to percentage points
+
+        # ── 6. Option details for that strike ─────────────────────────────────
+        row = calls.iloc[best_idx]
+        oi  = int(row.get('openInterest', 0) or 0)
+        bid = float(row.get('bid', 0) or 0)
+        ask = float(row.get('ask', 0) or 0)
+
+        # ── 7. Approximate Black-Scholes delta (no risk-free rate) ────────────
+        try:
+            exp_ts      = pd.Timestamp(exps[0])
+            days_to_exp = max((exp_ts - pd.Timestamp.now()).days, 1)
+            T           = days_to_exp / 365.0
+            d1          = (math.log(price / best_strike) + 0.5 * best_iv ** 2 * T) / (
+                            best_iv * math.sqrt(T)
+                          )
+            delta       = round(0.5 * (1.0 + math.erf(d1 / math.sqrt(2))), 2)
+        except Exception:
+            days_to_exp = 0
+            delta       = 0.50
+
+        # ── 8. Grade ──────────────────────────────────────────────────────────
+        if residual_pp < -5:
+            grade, color, emoji = "VERY CHEAP", "#2ecc71", "🟢"
+            advice = (
+                f"${best_strike:.2f} call is {abs(residual_pp):.1f} PP below the "
+                f"smile — market is pricing it well below its neighbours. "
+                f"Verify OI ({oi:,}) and spread before entering."
+            )
+        elif residual_pp < -3:
+            grade, color, emoji = "CHEAP", "#2ecc71", "🟢"
+            advice = (
+                f"${best_strike:.2f} call sits {abs(residual_pp):.1f} PP cheap vs "
+                f"the fitted smile. Solid relative value for a call buyer."
+            )
+        elif residual_pp < -1:
+            grade, color, emoji = "SLIGHT DISCOUNT", "#f39c12", "🟡"
+            advice = (
+                f"${best_strike:.2f} call is marginally cheap ({residual_pp:+.1f} PP). "
+                f"Minor edge — rely on your price setup, not the discount alone."
+            )
+        else:
+            grade, color, emoji = "FAIRLY PRICED", "#8b92a8", "⬜"
+            advice = (
+                f"Chain is uniformly priced — no relative edge on any strike. "
+                f"${best_strike:.2f} is the closest to fair value."
+            )
+
+        return {
+            "available":      True,
+            "symbol":         symbol,
+            "expiry":         exps[0],
+            "best_strike":    best_strike,
+            "iv_pct":         round(best_iv * 100, 1),
+            "fitted_iv_pct":  round(best_fitted_iv * 100, 1),
+            "residual_pp":    round(residual_pp, 1),
+            "oi":             oi,
+            "bid":            bid,
+            "ask":            ask,
+            "delta":          delta,
+            "days_to_exp":    days_to_exp,
+            "strikes_scanned": len(calls),
+            "grade":          grade,
+            "color":          color,
+            "emoji":          emoji,
+            "advice":         advice,
+        }
+
+    except Exception:
+        return {"available": False}
