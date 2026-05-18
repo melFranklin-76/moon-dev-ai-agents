@@ -1175,3 +1175,109 @@ def get_best_buy_strike(symbol: str) -> dict:
 
     except Exception:
         return {"available": False}
+
+
+# ── Earnings Date & Risk ───────────────────────────────────────────────────────
+@st.cache_data(ttl=3600)
+def get_earnings_date(symbol: str) -> dict:
+    """
+    Next earnings date and risk grade for a call BUYER.
+
+    Earnings = IV spike before, IV crush immediately after.
+    Buying calls into earnings at a $250 account is an account killer.
+
+    Risk grades:
+      DANGER    ≤ 3 days  — do not buy calls, IV crush is imminent
+      HIGH RISK ≤ 7 days  — IV already inflated, exit before announcement
+      CAUTION   ≤ 14 days — on radar, plan your exit date
+      WATCH     ≤ 30 days — not immediate, keep it in mind
+      CLEAR     > 30 days — no near-term crush risk
+    """
+    try:
+        t       = yf.Ticker(symbol)
+        now_utc = pd.Timestamp.now(tz='UTC')
+        next_dt = None
+
+        # ── Method 1: earnings_dates DataFrame (most reliable) ────────────────
+        try:
+            ed = t.earnings_dates
+            if ed is not None and not ed.empty:
+                future = ed[ed.index > now_utc]
+                if not future.empty:
+                    next_dt = future.index.min()   # soonest upcoming
+        except Exception:
+            pass
+
+        # ── Method 2: calendar dict / DataFrame (fallback) ───────────────────
+        if next_dt is None:
+            try:
+                cal = t.calendar
+                if isinstance(cal, dict):
+                    for raw in cal.get('Earnings Date', []):
+                        ts = pd.Timestamp(raw)
+                        if ts.tzinfo is None:
+                            ts = ts.tz_localize('UTC')
+                        if ts > now_utc:
+                            if next_dt is None or ts < next_dt:
+                                next_dt = ts
+                elif isinstance(cal, pd.DataFrame) and not cal.empty:
+                    for col in ['Earnings Date', 'Earnings date']:
+                        if col in cal.columns:
+                            for raw in cal[col].dropna():
+                                ts = pd.Timestamp(raw)
+                                if ts.tzinfo is None:
+                                    ts = ts.tz_localize('UTC')
+                                if ts > now_utc:
+                                    if next_dt is None or ts < next_dt:
+                                        next_dt = ts
+            except Exception:
+                pass
+
+        if next_dt is None:
+            return {"available": False}
+
+        if next_dt.tzinfo is None:
+            next_dt = next_dt.tz_localize('UTC')
+
+        days     = max((next_dt - now_utc).days, 0)
+        date_str = next_dt.strftime('%b %d')
+
+        # ── Risk grade ────────────────────────────────────────────────────────
+        if days <= 3:
+            grade, color, emoji = "DANGER",    "#e74c3c", "🚨"
+            advice = (
+                f"Earnings {date_str} ({days}d). DO NOT buy calls — "
+                f"IV crushes the moment results drop. Any premium gain vanishes overnight."
+            )
+        elif days <= 7:
+            grade, color, emoji = "HIGH RISK", "#e74c3c", "⚠️"
+            advice = (
+                f"Earnings {date_str} ({days}d). IV already inflated — "
+                f"you're paying extra for a coin flip. Exit before or skip."
+            )
+        elif days <= 14:
+            grade, color, emoji = "CAUTION",   "#f39c12", "⚠️"
+            advice = (
+                f"Earnings {date_str} ({days}d). "
+                f"Plan your exit before the date — don't hold through it."
+            )
+        elif days <= 30:
+            grade, color, emoji = "WATCH",     "#f39c12", "👀"
+            advice = f"Earnings {date_str} ({days}d). On radar — not immediate."
+        else:
+            grade, color, emoji = "CLEAR",     "#2ecc71", "✅"
+            advice = f"Next earnings {date_str} ({days}d). No near-term crush risk."
+
+        return {
+            "available": True,
+            "symbol":    symbol,
+            "date_str":  date_str,
+            "days":      days,
+            "grade":     grade,
+            "color":     color,
+            "emoji":     emoji,
+            "advice":    advice,
+        }
+
+    except Exception:
+        return {"available": False}

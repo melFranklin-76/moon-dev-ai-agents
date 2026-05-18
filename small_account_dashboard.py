@@ -47,6 +47,7 @@ try:
         get_intraday_sector_flow,
         get_signal_strength,
         get_best_buy_strike,
+        get_earnings_date,
     )
 except ImportError:
     def get_options_snapshot(symbol: str) -> dict:   return {"available": False}
@@ -62,6 +63,7 @@ except ImportError:
         return {"score": 0, "grade": "—", "color": "#8b92a8",
                 "emoji": "⬜", "stars": "☆"*10, "advice": "", "detail": {}}
     def get_best_buy_strike(symbol: str) -> dict:    return {"available": False}
+    def get_earnings_date(symbol: str) -> dict:      return {"available": False}
 import sheets_backend as _sheets
 
 load_dotenv()
@@ -724,7 +726,8 @@ with tab2:
             with cols[i % 3]:
                 # ── SIMPLE MODE ───────────────────────────────────────────────
                 if _vm == 'Simple':
-                    ss = get_signal_strength(sym)
+                    ss   = get_signal_strength(sym)
+                    earn = get_earnings_date(sym)
                     sig_bg = f"{ss['color']}22"
                     d = ss['detail']
                     layers_html = "".join([
@@ -735,6 +738,22 @@ with tab2:
                         f"<span style='color:#8b92a8;'>Liq {d['liq']['note']}</span>",
                     ])
                     vwap_color = "#2ecc71" if price > vwap and vwap > 0 else "#e74c3c" if vwap > 0 else "#8b92a8"
+
+                    # Earnings badge — always show, style by urgency
+                    if earn.get("available"):
+                        earn_bar = (
+                            f"<div style='background:{earn['color']}22; "
+                            f"border:1px solid {earn['color']}; border-radius:8px; "
+                            f"padding:7px 10px; margin-top:8px; font-size:12px; line-height:1.4;'>"
+                            f"<strong style='color:{earn['color']};'>"
+                            f"{earn['emoji']} EARNINGS {earn['grade']}</strong> "
+                            f"&nbsp;·&nbsp; {earn['date_str']} &nbsp;·&nbsp; {earn['days']}d away<br>"
+                            f"<span style='color:#8b92a8;'>{earn['advice']}</span>"
+                            f"</div>"
+                        )
+                    else:
+                        earn_bar = ""
+
                     st.markdown(f"""
                     <div class="simple-card">
                       <div class="simple-ticker">{sym}</div>
@@ -748,6 +767,7 @@ with tab2:
                       <div class="simple-stars" style="color:{ss['color']};">{ss['stars']}</div>
                       <div class="simple-advice">{ss['advice']}</div>
                       <div class="simple-layers">{layers_html}</div>
+                      {earn_bar}
                     </div>
                     """, unsafe_allow_html=True)
                     continue   # skip Pro block below
@@ -869,6 +889,23 @@ with tab2:
                 else:
                     bbs_html = ""
 
+                # Earnings risk badge — always shown in Pro Mode
+                earn = get_earnings_date(sym)
+                if earn.get("available"):
+                    earn_html = (
+                        f"<p style='margin:6px 0 2px 0;'>"
+                        f"<span style='background:{earn['color']}22; color:{earn['color']}; "
+                        f"border:1px solid {earn['color']}; border-radius:5px; "
+                        f"padding:2px 8px; font-weight:bold; font-size:13px;'>"
+                        f"{earn['emoji']} EARNINGS {earn['grade']} &nbsp;·&nbsp; "
+                        f"{earn['date_str']} &nbsp;·&nbsp; {earn['days']}d away"
+                        f"</span></p>"
+                        f"<p style='color:#8b92a8; font-size:11px; margin:2px 0;'>"
+                        f"{earn['advice']}</p>"
+                    )
+                else:
+                    earn_html = ""
+
                 st.markdown(f"""
                 <div class="trade-card">
                 <h2>${sym}</h2>
@@ -881,6 +918,7 @@ with tab2:
                 {sq_html}
                 {mp_html}
                 {bbs_html}
+                {earn_html}
                 <hr>
                 {liq_html}
                 <p><strong>Strategies:</strong> #163 VWAP · #172 Whole-$ · #177 BTC-sync</p>
