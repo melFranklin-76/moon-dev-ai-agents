@@ -64,6 +64,14 @@ except ImportError:
                 "emoji": "⬜", "stars": "☆"*10, "advice": "", "detail": {}}
     def get_best_buy_strike(symbol: str) -> dict:    return {"available": False}
     def get_earnings_date(symbol: str) -> dict:      return {"available": False}
+
+try:
+    from streamlit_autorefresh import st_autorefresh as _st_autorefresh
+    _HAS_AUTOREFRESH = True
+except ImportError:
+    _HAS_AUTOREFRESH = False
+    def _st_autorefresh(*a, **kw): pass
+
 import sheets_backend as _sheets
 
 load_dotenv()
@@ -443,6 +451,10 @@ for _al in _alerts:
 if _alert_fired:
     save_alerts(_alerts)
     st.session_state['price_alerts'] = _alerts
+
+# ── Auto-refresh (fires if enabled in sidebar) ────────────────────────────────
+if _HAS_AUTOREFRESH and st.session_state.get('auto_refresh', True):
+    _st_autorefresh(interval=60_000, key="main_autorefresh")
 
 # ── Header ────────────────────────────────────────────────────────────────────
 c1, c2, c3 = st.columns([1, 2, 1])
@@ -1174,6 +1186,130 @@ with tab5:
             unsafe_allow_html=True
         )
 
+    # ── Webull CSV Import ─────────────────────────────────────────────────────
+    with st.expander("📥 Import from Webull CSV", expanded=False):
+        st.markdown("""
+        **How to export from Webull:**
+        1. Webull app → **Account** → **Orders** (top right)
+        2. Filter to **Options** → tap ↗ export icon (top right)
+        3. Choose date range → **Export**
+        4. Upload the CSV file here
+        """)
+        st.caption("All pairing is automatic — buys matched to sells, P&L calculated.")
+
+        _wb_file = st.file_uploader("Upload Webull Order History CSV",
+                                    type=["csv"], key="wb_csv_uploader")
+        if _wb_file:
+            try:
+                _wb_df = pd.read_csv(_wb_file)
+                # Normalise column names
+                _wb_df.columns = [c.strip() for c in _wb_df.columns]
+                st.markdown(f"**{len(_wb_df)} rows · Columns:** `{list(_wb_df.columns)}`")
+
+                # ── Flexible column detection ──────────────────────────────
+                def _find_col(df, *keywords):
+                    for kw in keywords:
+                        for c in df.columns:
+                            if kw.lower() in c.lower():
+                                return c
+                    return None
+
+                _sym_c  = _find_col(_wb_df, 'symbol', 'ticker', 'option')
+                _side_c = _find_col(_wb_df, 'side', 'action', 'buy/sell', 'type')
+                _px_c   = _find_col(_wb_df, 'avg. price', 'avg price', 'price', 'fill')
+                _qty_c  = _find_col(_wb_df, 'filled qty', 'qty', 'quantity', 'shares')
+                _dt_c   = _find_col(_wb_df, 'filled at', 'placed', 'date', 'time')
+                _st_c   = _find_col(_wb_df, 'status')
+
+                if not _sym_c or not _side_c or not _px_c:
+                    st.error(
+                        f"Couldn't auto-detect columns. Found: {list(_wb_df.columns)}\n\n"
+                        "Expected columns containing: symbol, side (buy/sell), price."
+                    )
+                else:
+                    # Filter to filled orders only
+                    _wdf = _wb_df.copy()
+                    if _st_c:
+                        _wdf = _wdf[_wdf[_st_c].astype(str).str.lower()
+                                    .isin(['filled', 'complete', 'executed', 'all filled'])]
+
+                    # Separate buys / sells
+                    _buys  = _wdf[_wdf[_side_c].astype(str).str.upper()
+                                  .isin(['BUY', 'BOUGHT', 'B', 'BUY TO OPEN'])].copy()
+                    _sells = _wdf[_wdf[_side_c].astype(str).str.upper()
+                                  .isin(['SELL', 'SOLD', 'S', 'SELL TO CLOSE'])].copy()
+
+                    _matched = set()
+                    _parsed  = []
+                    for _, _br in _buys.iterrows():
+                        _bsym = str(_br[_sym_c]).strip()
+                        try:
+                            _bpx = float(str(_br[_px_c]).replace('$','').replace(',',''))
+                        except Exception:
+                            continue
+                        _bqty = 1
+                        if _qty_c:
+                            try:
+                                _bqty = max(1, int(float(str(_br[_qty_c]).replace(',',''))))
+                            except Exception:
+                                pass
+                        _bdt = str(_br[_dt_c]).split()[0] if _dt_c else date.today().isoformat()
+
+                        for _si, _sr in _sells.iterrows():
+                            if _si in _matched:
+                                continue
+                            if str(_sr[_sym_c]).strip() != _bsym:
+                                continue
+                            try:
+                                _spx = float(str(_sr[_px_c]).replace('$','').replace(',',''))
+                            except Exception:
+                                continue
+                            _sqty = 1
+                            if _qty_c:
+                                try:
+                                    _sqty = max(1, int(float(str(_sr[_qty_c]).replace(',',''))))
+                                except Exception:
+                                    pass
+                            _matched.add(_si)
+                            _pnl   = round((_spx - _bpx) * min(_bqty, _sqty) * 100, 2)
+                            # Extract underlying (first word of option symbol)
+                            _under = _bsym.split()[0] if ' ' in _bsym else _bsym
+                            _side  = ('Put' if 'put' in _bsym.lower() else 'Call')
+                            _parsed.append({
+                                'date':     _bdt,
+                                'ticker':   _under,
+                                'strategy': 'Imported — Webull',
+                                'side':     _side,
+                                'entry':    _bpx,
+                                'exit':     _spx,
+                                'pnl':      _pnl,
+                                'result':   'Green' if _pnl >= 0 else 'Red',
+                                'notes':    _bsym,
+                            })
+                            break
+
+                    if not _parsed:
+                        st.warning(
+                            "No matched buy→sell pairs found. "
+                            "Make sure you exported **Options** order history "
+                            "and that both legs of each trade are in the file."
+                        )
+                        st.dataframe(_wb_df.head(5))
+                    else:
+                        st.success(f"✅ {len(_parsed)} completed trades detected")
+                        st.dataframe(pd.DataFrame(_parsed), use_container_width=True)
+                        if st.button(f"✅ Import {len(_parsed)} trades", key="wb_import_btn",
+                                     type="primary"):
+                            for _t in _parsed:
+                                save_trade(_t)
+                            st.session_state.trades = load_trades()
+                            st.cache_data.clear()
+                            st.success(f"Imported {len(_parsed)} trades! Journal updated.")
+                            st.rerun()
+            except Exception as _e:
+                st.error(f"Error reading CSV: {_e}")
+                st.caption("Try exporting again from Webull with the default settings.")
+
     with st.expander("➕ Log New Trade", expanded=False and not _blocked):
         c1, c2 = st.columns(2)
         with c1:
@@ -1666,6 +1802,108 @@ with tab8:
                 else:
                     mins_left = (datetime.combine(date.today(), cutoff) - datetime.combine(date.today(), d_time)).seconds // 60
                     st.success(f"✅ In momentum window — {mins_left} min remaining before 9:30 AM CT cutoff (10:30 ET).")
+
+                # ── Options P&L Simulator ─────────────────────────────────────
+                st.markdown("---")
+                st.markdown("### 📊 Scenario Simulator")
+                st.caption("Black-Scholes estimate of option value at different stock prices. Not a guarantee — use as a guide.")
+
+                _sim_dte = st.slider("Days to expiry", min_value=1, max_value=45,
+                                     value=7, key="sim_dte")
+                _sim_iv  = st.slider("Implied Volatility (%)", min_value=10, max_value=300,
+                                     value=80, key="sim_iv",
+                                     help="Check IV Rank badge on your ticker card for the current IV.")
+                _sim_contracts = st.number_input("Contracts", min_value=1, max_value=10,
+                                                  value=1, step=1, key="sim_contracts")
+
+                # Black-Scholes call / put pricer
+                import math as _math
+                def _bs_price(S, K, T, iv, is_call=True, r=0.0):
+                    if T <= 0: return max((S-K if is_call else K-S), 0.0)
+                    if iv <= 0 or S <= 0 or K <= 0: return 0.0
+                    try:
+                        _d1 = (_math.log(S/K) + (r + 0.5*iv**2)*T) / (iv*_math.sqrt(T))
+                        _d2 = _d1 - iv*_math.sqrt(T)
+                        _N  = lambda x: 0.5*(1 + _math.erf(x/_math.sqrt(2)))
+                        if is_call:
+                            return max(S*_N(_d1) - K*_math.exp(-r*T)*_N(_d2), 0.0)
+                        else:
+                            return max(K*_math.exp(-r*T)*_N(-_d2) - S*_N(-_d1), 0.0)
+                    except Exception:
+                        return 0.0
+
+                _is_call = "Call" in d_side
+                _K       = float(strike)
+                _S0      = float(d_price)
+                _iv_dec  = _sim_iv / 100.0
+                _T0      = _sim_dte / 365.0
+                _prem    = float(d_prem)
+                _contracts = int(_sim_contracts)
+                _total_cost = round(_prem * 100 * _contracts, 2)
+
+                # Scenario rows: stock moves
+                _moves = [-0.20, -0.15, -0.10, -0.05, 0.0,
+                           0.05,  0.10,  0.15,  0.20,
+                           0.25,  0.30,  0.40,  0.50]
+                _rows = []
+                for _m in _moves:
+                    _S    = round(_S0 * (1 + _m), 2)
+                    _opt    = round(_bs_price(_S, _K, _T0, _iv_dec, _is_call), 2)
+                    _pnl_d  = round((_opt - _prem) * 100 * _contracts, 2)
+                    _pnl_pc = round((_opt - _prem) / _prem * 100, 1) if _prem > 0 else 0
+                    _rows.append({
+                        "Stock Move":  f"{_m:+.0%}",
+                        "Stock $":     f"${_S:.2f}",
+                        "Option $":    f"${_opt:.2f}",
+                        f"P&L ({_contracts}c)": f"${_pnl_d:+.2f}",
+                        "P&L %":       f"{_pnl_pc:+.1f}%",
+                        "_pnl":        _pnl_d,
+                    })
+
+                _df_sim = pd.DataFrame(_rows)
+
+                def _color_row(row):
+                    v = row["_pnl"]
+                    bg = "#1a3d1a" if v > 0 else ("#3d1a1a" if v < 0 else "#2a2d3e")
+                    return [f"background-color:{bg}"]*len(row)
+
+                st.dataframe(
+                    _df_sim.drop(columns=["_pnl"]).style.apply(_color_row, axis=1),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+                # Break-even stock price
+                _be_move = (_K + _prem - _S0) / _S0 * 100 if _is_call else (_S0 - _K - _prem) / _S0 * -100
+                _target_stock_25 = _K + (_prem * 1.25) if _is_call else _K - (_prem * 1.25)
+
+                st.markdown(f"""
+                <div style="background:#1e2130; border-radius:8px; padding:10px 14px; font-size:13px;">
+                  <strong>Key levels:</strong><br>
+                  💀 Break-even at expiry: <strong>${_K + _prem:.2f}</strong> stock
+                  &nbsp;(+{_be_move:.1f}% from current)<br>
+                  🎯 +25% option exit → stock needs ≈ <strong>${_target_stock_25:.2f}</strong><br>
+                  💸 Max loss: <strong>${_total_cost:.2f}</strong> (full premium if expires worthless)<br>
+                  📅 Time decay: option loses ~${round(_prem*0.10*100*_contracts,2):.2f}
+                  /day at current theta estimate
+                </div>
+                """, unsafe_allow_html=True)
+
+                # Time decay table (at current stock price)
+                st.markdown("**Time decay at current stock price:**")
+                _decay_rows = []
+                for _days_left in [_sim_dte, max(_sim_dte-3,1), max(_sim_dte-7,1),
+                                   max(_sim_dte-14,1), 1]:
+                    _T_d    = _days_left / 365.0
+                    _opt_td = round(_bs_price(_S0, _K, _T_d, _iv_dec, _is_call), 2)
+                    _pnl_td = round((_opt_td - _prem)*100*_contracts, 2)
+                    _decay_rows.append({
+                        "Days Remaining": _days_left,
+                        "Option Value":   f"${_opt_td:.2f}",
+                        "P&L":            f"${_pnl_td:+.2f}",
+                    })
+                st.dataframe(pd.DataFrame(_decay_rows), use_container_width=True, hide_index=True)
+
             else:
                 st.info("Enter stock price and option premium to generate trade plan.")
 
@@ -1831,6 +2069,21 @@ with st.sidebar:
         st.caption("📱 Simple Mode — clean cards, perfect for mobile. One score tells the story.")
     else:
         st.caption("🔬 Pro Mode — all 5 insider layers visible. For when you want the full picture.")
+
+    st.markdown("---")
+    # ── Auto-Refresh ──────────────────────────────────────────────────────────
+    st.markdown("### 🔄 Auto-Refresh")
+    _ar_on = st.toggle(
+        "Refresh every 60 seconds",
+        value=st.session_state.get('auto_refresh', True),
+        key="auto_refresh_toggle",
+        help="Keeps prices, alerts, and signals current while the tab is open.",
+    )
+    st.session_state['auto_refresh'] = _ar_on
+    if _ar_on:
+        st.caption("🟢 Live — updating every 60s")
+    else:
+        st.caption("⏸ Paused — hit ⌘R / F5 to refresh manually")
 
     st.markdown("---")
     # ── Account Balance ───────────────────────────────────────────────────────
