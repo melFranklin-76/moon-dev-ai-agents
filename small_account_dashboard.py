@@ -128,6 +128,29 @@ TRADES_FILE = Path(__file__).parent / "src" / "data" / "small_account" / "trades
 TRADES_FILE.parent.mkdir(parents=True, exist_ok=True)
 TRADE_FIELDS = ['date', 'ticker', 'strategy', 'side', 'entry', 'exit', 'pnl', 'result', 'notes']
 
+ALERTS_FILE  = Path(__file__).parent / "src" / "data" / "small_account" / "alerts.csv"
+ALERT_FIELDS = ['ticker', 'target', 'direction', 'created', 'triggered']
+
+def load_alerts() -> list:
+    if not ALERTS_FILE.exists():
+        return []
+    try:
+        df = pd.read_csv(ALERTS_FILE)
+        df['triggered'] = df['triggered'].astype(str).str.lower().isin(['true', '1', 'yes'])
+        return df.to_dict('records')
+    except Exception:
+        return []
+
+def save_alerts(alerts: list):
+    try:
+        with open(ALERTS_FILE, 'w', newline='') as f:
+            w = csv.DictWriter(f, fieldnames=ALERT_FIELDS)
+            w.writeheader()
+            for a in alerts:
+                w.writerow({k: a.get(k, '') for k in ALERT_FIELDS})
+    except Exception:
+        pass
+
 ALL_STRATEGIES = [
     "159. 1-min ORB + VWAP Hold",         "160. 1-min ORB Fail → VWAP Reject",
     "161. 5-min OR Break + 1-min Flag",   "162. Premarket High Retest-and-Go",
@@ -206,6 +229,7 @@ defaults = {
     'ntfy_topic':       '',       # ntfy.sh push notification channel
     'news_cache':       {},       # {symbol: [headlines]} populated on ➕ click
     'view_mode':        'Simple', # 'Simple' | 'Pro'
+    'price_alerts':     load_alerts(),  # [{ticker, target, direction, triggered}]
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -377,6 +401,48 @@ with st.spinner("Loading market data..."):
     btc_price    = get_btc_price()
     snapshots    = {sym: get_snapshot(sym) for sym in _watchlist}
     last_updated = datetime.now().strftime('%H:%M:%S')
+
+# ── Price Alert Check (runs every page load) ───────────────────────────────────
+_alerts       = st.session_state.get('price_alerts', [])
+_ntfy_topic   = st.session_state.get('ntfy_topic', '')
+_alert_fired  = False
+for _al in _alerts:
+    if _al.get('triggered'):
+        continue
+    _sym    = str(_al.get('ticker', '')).upper()
+    _target = float(_al.get('target', 0))
+    _dirn   = str(_al.get('direction', 'above'))
+    if not _sym or _target <= 0:
+        continue
+    # Use snapshot price if ticker is on watchlist, otherwise quick fetch
+    if _sym in snapshots:
+        _curr = snapshots[_sym]['price']
+    else:
+        try:
+            _df_a = yf.Ticker(_sym).history(period='1d', interval='5m')
+            _curr = float(_df_a['Close'].iloc[-1]) if not _df_a.empty else 0.0
+        except Exception:
+            _curr = 0.0
+    if _curr <= 0:
+        continue
+    _hit = (_dirn == 'above' and _curr >= _target) or \
+           (_dirn == 'below' and _curr <= _target)
+    if _hit:
+        _al['triggered'] = True
+        _alert_fired     = True
+        _arrow = "▲" if _dirn == 'above' else "▼"
+        _msg   = f"{_sym} is at ${_curr:.2f} — your {_arrow} ${_target:.2f} alert triggered!"
+        st.toast(f"🔔 {_sym} {_arrow} ${_target:.2f} — ALERT!", icon="🔔")
+        if _ntfy_topic:
+            send_ntfy(
+                _ntfy_topic,
+                f"🔔 Price Alert: {_sym} {_arrow} ${_target:.2f}",
+                _msg,
+                priority="urgent",
+            )
+if _alert_fired:
+    save_alerts(_alerts)
+    st.session_state['price_alerts'] = _alerts
 
 # ── Header ────────────────────────────────────────────────────────────────────
 c1, c2, c3 = st.columns([1, 2, 1])
@@ -1839,6 +1905,72 @@ with st.sidebar:
         3. In the app, subscribe to that same topic<br>
         4. Signals will push to your phone automatically
         </small>""", unsafe_allow_html=True)
+
+    st.markdown("---")
+    # ── Price Alerts ──────────────────────────────────────────────────────────
+    st.markdown("### 🔔 Price Alerts")
+    st.caption("Triggers on each page refresh. Sends push + on-screen toast.")
+
+    _al_c1, _al_c2 = st.columns([1, 1])
+    with _al_c1:
+        _new_tick  = st.text_input("Ticker", placeholder="ONDS",
+                                   key="al_tick_input").upper().strip()
+    with _al_c2:
+        _new_price = st.number_input("Target $", min_value=0.01, step=0.25,
+                                     format="%.2f", key="al_price_input")
+    _new_dir = st.radio("Trigger when price is:", ["▲ Above target", "▼ Below target"],
+                        horizontal=True, key="al_dir_radio")
+
+    if st.button("➕ Add Alert", key="add_alert_btn"):
+        if _new_tick and _new_price > 0:
+            _new_al = {
+                "ticker":    _new_tick,
+                "target":    round(_new_price, 2),
+                "direction": "above" if "Above" in _new_dir else "below",
+                "created":   date.today().isoformat(),
+                "triggered": False,
+            }
+            _cur_alerts = st.session_state.get('price_alerts', [])
+            _cur_alerts.append(_new_al)
+            save_alerts(_cur_alerts)
+            st.session_state['price_alerts'] = _cur_alerts
+            st.success(f"Alert set: {_new_tick} {'▲' if 'Above' in _new_dir else '▼'} ${_new_price:.2f}")
+            st.rerun()
+        else:
+            st.warning("Enter a ticker and target price.")
+
+    # Display active + triggered alerts
+    _all_alerts  = st.session_state.get('price_alerts', [])
+    _active_als  = [a for a in _all_alerts if not a.get('triggered')]
+    _done_als    = [a for a in _all_alerts if a.get('triggered')]
+
+    if _active_als:
+        st.caption(f"**{len(_active_als)} active alert{'s' if len(_active_als) != 1 else ''}:**")
+        for _ai, _a in enumerate(_active_als):
+            _arrow = "▲" if _a['direction'] == 'above' else "▼"
+            _rc1, _rc2 = st.columns([4, 1])
+            with _rc1:
+                st.markdown(
+                    f"<small>🔔 <strong>{_a['ticker']}</strong> "
+                    f"{_arrow} <strong>${float(_a['target']):.2f}</strong></small>",
+                    unsafe_allow_html=True,
+                )
+            with _rc2:
+                if st.button("✕", key=f"del_al_{_ai}", help="Remove alert"):
+                    _all_alerts = [x for x in _all_alerts if x is not _a]
+                    save_alerts(_all_alerts)
+                    st.session_state['price_alerts'] = _all_alerts
+                    st.rerun()
+    else:
+        st.caption("No active alerts.")
+
+    if _done_als:
+        st.caption(f"✅ {len(_done_als)} triggered")
+        if st.button("🗑 Clear triggered", key="clear_triggered_btn"):
+            _all_alerts = [a for a in _all_alerts if not a.get('triggered')]
+            save_alerts(_all_alerts)
+            st.session_state['price_alerts'] = _all_alerts
+            st.rerun()
 
     st.markdown("---")
     st.markdown("### 🔌 Alpaca Connection")
