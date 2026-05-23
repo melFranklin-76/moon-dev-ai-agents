@@ -1,0 +1,174 @@
+Test #,Strategy,Parameters,Return %,Sharpe,Win Rate %,Max DD %,Trades,Profit Factor
+11,DualMA,"{'fast_ma': 10, 'slow_ma': 20}",533.41,0.86,60.9,-20.0,46,3.69
+151,TripleMA,"{'fast': 8, 'medium': 30, 'slow': 100}",247.93,0.79,55.6,-29.6,27,4.13
+1,DualMA,"{'fast_ma': 5, 'slow_ma': 20}",388.02,0.77,48.2,-29.7,56,2.8
+12,DualMA,"{'fast_ma': 10, 'slow_ma': 40}",448.5,0.76,56.5,-24.0,23,4.59
+154,TripleMA,"{'fast': 8, 'medium': 40, 'slow': 100}",269.39,0.76,60.9,-28.3,23,3.65
+160,TripleMA,"{'fast': 10, 'medium': 30, 'slow': 100}",235.83,0.75,52.0,-27.1,25,3.74
+168,MomentumBreakout,{'lookback': 25},152.94,0.74,52.8,-20.4,72,1.82
+157,TripleMA,"{'fast': 10, 'medium': 20, 'slow': 100}",204.89,0.72,58.1,-25.5,31,3.02
+21,DualMA,"{'fast_ma': 15, 'slow_ma': 20}",435.41,0.7,42.6,-29.6,54,2.42
+148,TripleMA,"{'fast': 8, 'medium': 20, 'slow': 100}",187.55,0.69,62.5,-34.1,32,2.66
+169,MomentumBreakout,{'lookback': 30},147.95,0.68,50.0,-19.4,68,1.84
+112,RSI,"{'rsi_period': 30, 'rsi_lower': 25, 'rsi_upper': 75}",22.38,0.67,,-5.1,0,
+113,RSI,"{'rsi_period': 30, 'rsi_lower': 25, 'rsi_upper': 80}",22.38,0.67,,-5.1,0,
+3,DualMA,"{'fast_ma': 5, 'slow_ma': 60}",269.42,0.66,48.0,-27.6,25,3.38
+166,MomentumBreakout,{'lookback': 15},147.38,0.66,49.4,-28.6,87,1.66
+163,TripleMA,"{'fast': 10, 'medium': 40, 'slow': 100}",198.45,0.64,57.9,-24.7,19,3.27
+2,DualMA,"{'fast_ma': 5, 'slow_ma': 40}",264.15,0.64,48.6,-33.1,35,2.89
+152,TripleMA,"{'fast': 8, 'medium': 30, 'slow': 200}",139.97,0.63,60.9,-22.2,23,3.78
+133,BollingerBands,"{'bb_period': 25, 'bb_std': 3.0}",80.83,0.63,100.0,-16.0,1,
+4,DualMA,"{'fast_ma': 5, 'slow_ma': 80}",253.59,0.63,35.7,-34.8,28,3.06
+31,DualMA,"{'fast_ma': 20, 'slow_ma': 40}",261.49,0.62,58.3,-38.9,24,3.23
+171,MomentumBreakout,{'lookback': 40},118.99,0.62,50.8,-19.3,59,1.82
+165,MomentumBreakout,{'lookback': 10},149.97,0.62,50.0,-24.9,96,1.6
+149,TripleMA,"{'fast': 8, 'medium': 20, 'slow': 200}",141.28,0.61,61.8,-24.6,34,2.79
+139,TripleMA,"{'fast': 5, 'medium': 20, 'slow': 100}",143.36,0.6,45.7,-32.5,35,2.15
+140,TripleMA,"{'fast': 5, 'medium': 20, 'slow': 200}",134.23,0.6,52.8,-24.4,36,2.55
+143,TripleMA,"{'fast': 5, 'medium': 30, 'slow': 200}",128.52,0.6,52.0,-22.0,25,3.63
+14,DualMA,"{'fast_ma': 10, 'slow_ma': 80}",216.05,0.59,36.8,-37.2,19,3.4
+142,TripleMA,"{'fast': 5, 'medium': 30, 'slow': 100}",145.21,0.59,44.8,-29.0,29,2.43
+145,TripleMA,"{'fast': 5, 'medium': 40, 'slow': 100}",154.78,0.58,46.2,-27.5,26,2.62
+170,MomentumBreakout,{'lookback': 35},95.08,0.57,50.8,-16.0,65,1.63
+22,DualMA,"{'fast_ma': 15, 'slow_ma': 40}",235.36,0.57,44.0,-33.7,25,2.96
+156,TripleMA,"{'fast': 10, 'medium': 20, 'slow': 50}",162.33,0.56,50.0,-25.3,36,2.37
+111,RSI,"{'rsi_period': 30, 'rsi_lower': 25, 'rsi_upper': 70}",9.97,0.56,100.0,-3.1,1,
+161,TripleMA,"{'fast': 10, 'medium': 30, 'slow': 200}",118.27,0.55,43.5,-28.9,23,2.81
+167,MomentumBreakout,{'lookback': 20},107.31,0.55,46.5,-28.3,86,1.52
+23,DualMA,"{'fast_ma': 15, 'slow_ma': 60}",190.96,0.55,47.4,-39.1,19,2.82
+101,RSI,"{'rsi_period': 20, 'rsi_lower': 30, 'rsi_upper': 80}",310.5,0.54,81.8,-60.3,11,12.13
+150,TripleMA,"{'fast': 8, 'medium': 30, 'slow': 50}",150.29,0.54,46.7,-28.1,30,2.28
+40,DualMA,"{'fast_ma': 25, 'slow_ma': 40}",204.18,0.54,56.5,-39.1,23,3.0
+110,RSI,"{'rsi_period': 30, 'rsi_lower': 25, 'rsi_upper': 65}",8.33,0.53,100.0,-2.0,1,
+81,RSI,"{'rsi_period': 14, 'rsi_lower': 25, 'rsi_upper': 80}",231.23,0.53,84.2,-54.8,19,4.49
+77,RSI,"{'rsi_period': 14, 'rsi_lower': 20, 'rsi_upper': 80}",190.5,0.53,92.3,-41.9,13,8.38
+158,TripleMA,"{'fast': 10, 'medium': 20, 'slow': 200}",114.51,0.52,59.4,-27.2,32,2.3
+120,RSI,"{'rsi_period': 30, 'rsi_lower': 35, 'rsi_upper': 75}",276.93,0.52,77.8,-55.7,9,21.63
+105,RSI,"{'rsi_period': 20, 'rsi_lower': 35, 'rsi_upper': 80}",295.0,0.51,83.3,-60.2,12,10.75
+159,TripleMA,"{'fast': 10, 'medium': 30, 'slow': 50}",143.86,0.51,41.4,-32.3,29,2.27
+25,DualMA,"{'fast_ma': 15, 'slow_ma': 100}",169.87,0.5,57.1,-51.9,14,3.36
+5,DualMA,"{'fast_ma': 5, 'slow_ma': 100}",163.67,0.5,35.0,-37.2,20,2.66
+153,TripleMA,"{'fast': 8, 'medium': 40, 'slow': 50}",159.2,0.5,51.9,-28.3,27,2.19
+13,DualMA,"{'fast_ma': 10, 'slow_ma': 60}",166.67,0.5,42.1,-34.0,19,2.53
+89,RSI,"{'rsi_period': 14, 'rsi_lower': 35, 'rsi_upper': 80}",252.28,0.49,83.3,-57.2,24,4.15
+99,RSI,"{'rsi_period': 20, 'rsi_lower': 30, 'rsi_upper': 70}",186.87,0.49,88.9,-48.3,18,5.43
+6,DualMA,"{'fast_ma': 5, 'slow_ma': 120}",155.21,0.49,37.5,-46.9,16,2.54
+52,DualMA,"{'fast_ma': 30, 'slow_ma': 100}",162.94,0.48,58.3,-51.2,12,3.85
+9,DualMA,"{'fast_ma': 5, 'slow_ma': 180}",118.35,0.48,44.4,-28.8,9,4.87
+172,MomentumBreakout,{'lookback': 45},68.52,0.48,51.9,-18.1,54,1.59
+155,TripleMA,"{'fast': 8, 'medium': 40, 'slow': 200}",101.74,0.48,45.0,-24.6,20,2.45
+121,RSI,"{'rsi_period': 30, 'rsi_lower': 35, 'rsi_upper': 80}",256.74,0.47,80.0,-56.5,5,55.65
+138,TripleMA,"{'fast': 5, 'medium': 20, 'slow': 50}",111.95,0.47,36.6,-31.5,41,1.91
+85,RSI,"{'rsi_period': 14, 'rsi_lower': 30, 'rsi_upper': 80}",203.77,0.47,81.0,-54.9,21,4.26
+53,DualMA,"{'fast_ma': 30, 'slow_ma': 120}",152.86,0.47,60.0,-49.9,10,3.39
+35,DualMA,"{'fast_ma': 20, 'slow_ma': 120}",150.78,0.47,54.5,-49.6,11,2.75
+24,DualMA,"{'fast_ma': 15, 'slow_ma': 80}",144.22,0.46,50.0,-35.6,16,2.94
+147,TripleMA,"{'fast': 8, 'medium': 20, 'slow': 50}",110.86,0.45,45.9,-37.5,37,1.95
+100,RSI,"{'rsi_period': 20, 'rsi_lower': 30, 'rsi_upper': 75}",179.53,0.45,80.0,-44.1,15,5.08
+43,DualMA,"{'fast_ma': 25, 'slow_ma': 100}",140.51,0.45,58.3,-49.3,12,3.01
+8,DualMA,"{'fast_ma': 5, 'slow_ma': 160}",102.1,0.44,46.2,-27.6,13,2.96
+10,DualMA,"{'fast_ma': 5, 'slow_ma': 200}",104.32,0.44,37.5,-33.7,8,3.84
+97,RSI,"{'rsi_period': 20, 'rsi_lower': 25, 'rsi_upper': 80}",191.29,0.44,87.5,-55.3,8,23.81
+16,DualMA,"{'fast_ma': 10, 'slow_ma': 120}",136.06,0.44,42.9,-42.4,14,2.44
+26,DualMA,"{'fast_ma': 15, 'slow_ma': 120}",136.54,0.44,50.0,-45.8,14,2.42
+34,DualMA,"{'fast_ma': 20, 'slow_ma': 100}",126.15,0.42,53.8,-46.8,13,2.98
+93,RSI,"{'rsi_period': 20, 'rsi_lower': 20, 'rsi_upper': 80}",119.83,0.42,80.0,-41.8,5,23.28
+44,DualMA,"{'fast_ma': 25, 'slow_ma': 120}",130.17,0.42,54.5,-54.8,11,2.65
+32,DualMA,"{'fast_ma': 20, 'slow_ma': 60}",121.69,0.42,47.4,-38.3,19,2.27
+119,RSI,"{'rsi_period': 30, 'rsi_lower': 35, 'rsi_upper': 70}",147.39,0.41,72.7,-49.3,11,5.62
+50,DualMA,"{'fast_ma': 30, 'slow_ma': 60}",118.2,0.41,60.0,-43.9,20,2.26
+173,MomentumBreakout,{'lookback': 50},53.31,0.41,49.0,-17.3,51,1.51
+15,DualMA,"{'fast_ma': 10, 'slow_ma': 100}",121.06,0.41,38.9,-50.2,18,2.39
+18,DualMA,"{'fast_ma': 10, 'slow_ma': 160}",89.37,0.4,50.0,-28.6,10,3.06
+98,RSI,"{'rsi_period': 20, 'rsi_lower': 30, 'rsi_upper': 65}",115.1,0.39,84.2,-49.8,19,3.09
+146,TripleMA,"{'fast': 5, 'medium': 40, 'slow': 200}",72.71,0.38,39.1,-25.2,23,2.05
+118,RSI,"{'rsi_period': 30, 'rsi_lower': 35, 'rsi_upper': 65}",113.17,0.38,84.6,-49.5,13,3.81
+164,TripleMA,"{'fast': 10, 'medium': 40, 'slow': 200}",74.27,0.37,38.9,-25.8,18,2.07
+19,DualMA,"{'fast_ma': 10, 'slow_ma': 180}",80.1,0.37,33.3,-30.8,9,2.72
+41,DualMA,"{'fast_ma': 25, 'slow_ma': 60}",96.55,0.36,52.6,-43.5,19,1.98
+96,RSI,"{'rsi_period': 20, 'rsi_lower': 25, 'rsi_upper': 75}",118.5,0.36,81.8,-41.9,11,5.4
+95,RSI,"{'rsi_period': 20, 'rsi_lower': 25, 'rsi_upper': 70}",99.82,0.36,83.3,-42.7,12,7.32
+125,BollingerBands,"{'bb_period': 15, 'bb_std': 3.0}",74.42,0.35,100.0,-43.4,1,
+162,TripleMA,"{'fast': 10, 'medium': 40, 'slow': 50}",94.79,0.35,47.8,-30.8,23,1.9
+49,DualMA,"{'fast_ma': 30, 'slow_ma': 40}",102.74,0.35,47.8,-39.6,23,2.06
+76,RSI,"{'rsi_period': 14, 'rsi_lower': 20, 'rsi_upper': 75}",94.92,0.34,92.3,-43.2,13,5.36
+20,DualMA,"{'fast_ma': 10, 'slow_ma': 200}",73.02,0.34,42.9,-34.0,7,2.85
+51,DualMA,"{'fast_ma': 30, 'slow_ma': 80}",91.46,0.34,56.2,-48.2,16,2.42
+141,TripleMA,"{'fast': 5, 'medium': 30, 'slow': 50}",71.03,0.33,39.4,-32.1,33,1.66
+136,BollingerBands,"{'bb_period': 30, 'bb_std': 2.5}",80.25,0.32,80.0,-53.7,10,2.84
+144,TripleMA,"{'fast': 5, 'medium': 40, 'slow': 50}",76.53,0.32,43.3,-28.8,30,1.68
+39,DualMA,"{'fast_ma': 20, 'slow_ma': 200}",64.07,0.32,33.3,-37.2,6,2.62
+131,BollingerBands,"{'bb_period': 25, 'bb_std': 2.0}",90.51,0.31,76.2,-63.8,21,2.12
+56,DualMA,"{'fast_ma': 30, 'slow_ma': 180}",56.04,0.3,50.0,-38.3,6,2.18
+57,DualMA,"{'fast_ma': 30, 'slow_ma': 200}",56.05,0.3,40.0,-38.1,5,2.5
+129,BollingerBands,"{'bb_period': 20, 'bb_std': 3.0}",75.67,0.3,100.0,-47.8,2,
+80,RSI,"{'rsi_period': 14, 'rsi_lower': 25, 'rsi_upper': 75}",87.75,0.3,84.2,-56.8,19,2.68
+48,DualMA,"{'fast_ma': 25, 'slow_ma': 200}",55.97,0.29,33.3,-36.3,6,2.1
+47,DualMA,"{'fast_ma': 25, 'slow_ma': 180}",57.36,0.29,33.3,-33.3,6,2.1
+46,DualMA,"{'fast_ma': 25, 'slow_ma': 160}",57.42,0.29,57.1,-32.5,7,2.01
+37,DualMA,"{'fast_ma': 20, 'slow_ma': 160}",53.22,0.27,62.5,-34.8,8,1.87
+132,BollingerBands,"{'bb_period': 25, 'bb_std': 2.5}",62.51,0.26,77.8,-53.7,9,2.58
+128,BollingerBands,"{'bb_period': 20, 'bb_std': 2.5}",69.81,0.26,80.0,-55.2,10,2.77
+104,RSI,"{'rsi_period': 20, 'rsi_lower': 35, 'rsi_upper': 75}",79.31,0.25,81.2,-55.1,16,2.58
+55,DualMA,"{'fast_ma': 30, 'slow_ma': 160}",42.98,0.24,42.9,-35.7,7,1.73
+103,RSI,"{'rsi_period': 20, 'rsi_lower': 35, 'rsi_upper': 70}",66.46,0.24,84.2,-58.7,19,2.3
+30,DualMA,"{'fast_ma': 15, 'slow_ma': 200}",47.78,0.24,28.6,-38.5,7,1.82
+42,DualMA,"{'fast_ma': 25, 'slow_ma': 80}",56.63,0.24,50.0,-48.6,16,1.75
+94,RSI,"{'rsi_period': 20, 'rsi_lower': 25, 'rsi_upper': 65}",54.25,0.24,83.3,-42.8,12,3.0
+7,DualMA,"{'fast_ma': 5, 'slow_ma': 140}",41.86,0.23,23.8,-39.6,21,1.36
+124,BollingerBands,"{'bb_period': 15, 'bb_std': 2.5}",59.84,0.23,75.0,-54.5,4,7.14
+33,DualMA,"{'fast_ma': 20, 'slow_ma': 80}",54.96,0.23,50.0,-49.6,16,1.73
+127,BollingerBands,"{'bb_period': 20, 'bb_std': 2.0}",61.21,0.23,78.3,-64.1,23,1.89
+134,BollingerBands,"{'bb_period': 30, 'bb_std': 1.5}",61.09,0.23,76.0,-60.2,25,1.83
+54,DualMA,"{'fast_ma': 30, 'slow_ma': 140}",42.05,0.22,45.5,-42.2,11,1.52
+88,RSI,"{'rsi_period': 14, 'rsi_lower': 35, 'rsi_upper': 75}",70.18,0.22,80.8,-59.8,26,2.23
+28,DualMA,"{'fast_ma': 15, 'slow_ma': 160}",39.91,0.21,55.6,-34.2,9,1.51
+117,RSI,"{'rsi_period': 30, 'rsi_lower': 30, 'rsi_upper': 80}",57.49,0.21,66.7,-54.3,3,13.71
+17,DualMA,"{'fast_ma': 10, 'slow_ma': 140}",38.43,0.21,40.0,-39.2,15,1.35
+116,RSI,"{'rsi_period': 30, 'rsi_lower': 30, 'rsi_upper': 75}",50.47,0.19,33.3,-54.3,3,5.88
+135,BollingerBands,"{'bb_period': 30, 'bb_std': 2.0}",44.09,0.18,77.8,-60.3,18,1.8
+64,RSI,"{'rsi_period': 10, 'rsi_lower': 25, 'rsi_upper': 75}",44.85,0.18,67.9,-54.4,28,1.71
+38,DualMA,"{'fast_ma': 20, 'slow_ma': 180}",33.77,0.18,28.6,-39.1,7,1.39
+27,DualMA,"{'fast_ma': 15, 'slow_ma': 140}",30.18,0.17,45.5,-34.0,11,1.26
+137,BollingerBands,"{'bb_period': 30, 'bb_std': 3.0}",30.4,0.17,100.0,-47.8,2,
+84,RSI,"{'rsi_period': 14, 'rsi_lower': 30, 'rsi_upper': 75}",39.05,0.15,72.7,-55.6,22,1.88
+102,RSI,"{'rsi_period': 20, 'rsi_lower': 35, 'rsi_upper': 65}",36.23,0.15,85.7,-59.0,21,1.74
+75,RSI,"{'rsi_period': 14, 'rsi_lower': 20, 'rsi_upper': 70}",28.1,0.14,71.4,-44.9,14,1.87
+65,RSI,"{'rsi_period': 10, 'rsi_lower': 25, 'rsi_upper': 80}",35.63,0.14,70.8,-58.2,24,1.6
+29,DualMA,"{'fast_ma': 15, 'slow_ma': 180}",23.61,0.13,25.0,-40.4,8,1.14
+115,RSI,"{'rsi_period': 30, 'rsi_lower': 30, 'rsi_upper': 70}",25.0,0.13,40.0,-37.2,5,6.62
+79,RSI,"{'rsi_period': 14, 'rsi_lower': 25, 'rsi_upper': 70}",26.32,0.12,80.0,-58.1,20,1.59
+114,RSI,"{'rsi_period': 30, 'rsi_lower': 30, 'rsi_upper': 65}",19.62,0.12,66.7,-36.0,6,2.2
+45,DualMA,"{'fast_ma': 25, 'slow_ma': 140}",18.32,0.11,33.3,-44.7,12,1.1
+91,RSI,"{'rsi_period': 20, 'rsi_lower': 20, 'rsi_upper': 70}",15.05,0.1,80.0,-42.2,5,2.39
+73,RSI,"{'rsi_period': 10, 'rsi_lower': 35, 'rsi_upper': 80}",27.5,0.1,61.1,-63.6,36,1.44
+72,RSI,"{'rsi_period': 10, 'rsi_lower': 35, 'rsi_upper': 75}",22.34,0.09,61.0,-60.4,41,1.35
+61,RSI,"{'rsi_period': 10, 'rsi_lower': 20, 'rsi_upper': 80}",18.97,0.09,73.7,-57.7,19,1.47
+36,DualMA,"{'fast_ma': 20, 'slow_ma': 140}",13.08,0.08,45.5,-41.4,11,1.02
+123,BollingerBands,"{'bb_period': 15, 'bb_std': 2.0}",17.29,0.07,70.0,-63.7,20,1.49
+69,RSI,"{'rsi_period': 10, 'rsi_lower': 30, 'rsi_upper': 80}",15.49,0.06,58.6,-59.3,29,1.35
+60,RSI,"{'rsi_period': 10, 'rsi_lower': 20, 'rsi_upper': 75}",8.95,0.04,72.7,-56.1,22,1.34
+63,RSI,"{'rsi_period': 10, 'rsi_lower': 25, 'rsi_upper': 70}",8.81,0.04,57.1,-56.0,28,1.28
+68,RSI,"{'rsi_period': 10, 'rsi_lower': 30, 'rsi_upper': 75}",9.95,0.04,54.5,-56.4,33,1.26
+92,RSI,"{'rsi_period': 20, 'rsi_lower': 20, 'rsi_upper': 75}",4.62,0.03,60.0,-42.2,5,1.39
+126,BollingerBands,"{'bb_period': 20, 'bb_std': 1.5}",6.37,0.03,63.6,-63.4,33,1.24
+62,RSI,"{'rsi_period': 10, 'rsi_lower': 25, 'rsi_upper': 65}",3.0,0.02,61.3,-63.2,31,1.23
+74,RSI,"{'rsi_period': 14, 'rsi_lower': 20, 'rsi_upper': 65}",0.99,0.01,78.6,-51.5,14,1.22
+87,RSI,"{'rsi_period': 14, 'rsi_lower': 35, 'rsi_upper': 70}",0.84,0.0,74.1,-61.1,27,1.21
+90,RSI,"{'rsi_period': 20, 'rsi_lower': 20, 'rsi_upper': 65}",0.19,0.0,80.0,-42.3,5,1.19
+130,BollingerBands,"{'bb_period': 25, 'bb_std': 1.5}",-4.73,-0.02,70.4,-65.7,27,1.18
+83,RSI,"{'rsi_period': 14, 'rsi_lower': 30, 'rsi_upper': 70}",-5.48,-0.03,69.6,-57.8,23,1.09
+78,RSI,"{'rsi_period': 14, 'rsi_lower': 25, 'rsi_upper': 65}",-6.33,-0.04,81.8,-57.4,22,1.08
+71,RSI,"{'rsi_period': 10, 'rsi_lower': 35, 'rsi_upper': 70}",-10.51,-0.05,56.8,-64.4,44,1.08
+67,RSI,"{'rsi_period': 10, 'rsi_lower': 30, 'rsi_upper': 70}",-11.18,-0.06,47.1,-57.2,34,1.04
+66,RSI,"{'rsi_period': 10, 'rsi_lower': 30, 'rsi_upper': 65}",-16.77,-0.09,47.4,-62.6,38,1.04
+70,RSI,"{'rsi_period': 10, 'rsi_lower': 35, 'rsi_upper': 65}",-18.61,-0.1,54.2,-66.9,48,1.03
+59,RSI,"{'rsi_period': 10, 'rsi_lower': 20, 'rsi_upper': 70}",-17.6,-0.1,59.1,-56.7,22,0.92
+58,RSI,"{'rsi_period': 10, 'rsi_lower': 20, 'rsi_upper': 65}",-14.79,-0.1,68.0,-63.6,25,1.02
+86,RSI,"{'rsi_period': 14, 'rsi_lower': 35, 'rsi_upper': 65}",-19.67,-0.11,63.3,-63.4,30,0.97
+122,BollingerBands,"{'bb_period': 15, 'bb_std': 1.5}",-29.83,-0.18,58.3,-67.3,36,0.88
+82,RSI,"{'rsi_period': 14, 'rsi_lower': 30, 'rsi_upper': 65}",-39.07,-0.28,56.0,-60.8,25,0.61
+106,RSI,"{'rsi_period': 30, 'rsi_lower': 20, 'rsi_upper': 65}",0.0,,,-0.0,0,
+107,RSI,"{'rsi_period': 30, 'rsi_lower': 20, 'rsi_upper': 70}",0.0,,,-0.0,0,
+108,RSI,"{'rsi_period': 30, 'rsi_lower': 20, 'rsi_upper': 75}",0.0,,,-0.0,0,
+109,RSI,"{'rsi_period': 30, 'rsi_lower': 20, 'rsi_upper': 80}",0.0,,,-0.0,0,

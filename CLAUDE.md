@@ -1,231 +1,167 @@
-# CLAUDE.md
+# CLAUDE.md — Project Instructions
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file tells Claude Code what this project is and how to work on it.
 
-## Project Overview
+---
 
-This is an experimental AI trading system that orchestrates 48+ specialized AI agents to analyze markets, execute strategies, and manage risk across cryptocurrency markets (primarily Solana). The project uses a modular agent architecture with unified LLM provider abstraction supporting Claude, GPT-4, DeepSeek, Groq, Gemini, and local Ollama models.
+## What This Project Is
 
-## Key Development Commands
+A personal options trading dashboard for a **$250 Webull cash account, Level 2** (buy calls/puts only). Built with Streamlit + yfinance. Not a crypto system, not a bot, not connected to Alpaca or any broker API for execution. The trader executes all trades manually on Webull.
 
-### Environment Setup
+**Owner:** Melvin Franklin, Milwaukee WI
+**Repo:** github.com/melFranklin-76/moon-dev-ai-agents
+
+---
+
+## Key Files
+
+| File | Purpose |
+|------|---------|
+| `small_account_dashboard.py` | Main app — all 9 tabs, all UI (~1,600+ lines) |
+| `small_account_helpers.py` | All data functions — IV rank, RS vs SPY, squeeze, max pain, best buy strike, earnings, sector flow, signal strength |
+| `sheets_backend.py` | Google Sheets persistence (optional) |
+| `requirements.txt` | Python dependencies |
+
+**Do not move or rename these files.**
+
+---
+
+## Architecture Rules
+
+### Two-file pattern
+- **Data functions** → `small_account_helpers.py` (decorated with `@st.cache_data`)
+- **UI + rendering** → `small_account_dashboard.py`
+- If a function fetches data from yfinance or does calculations, it goes in helpers
+- If it renders HTML or Streamlit widgets, it goes in the dashboard
+
+### Defensive imports
+All v3.1+ helper functions are imported in a `try/except ImportError` block in the dashboard. Every new function added to helpers must also get a stub in the except block so version mismatches never crash the app:
+
+```python
+try:
+    from small_account_helpers import (
+        get_new_function,
+        ...
+    )
+except ImportError:
+    def get_new_function(symbol: str) -> dict: return {"available": False}
+```
+
+### Cache TTL guidelines
+- Market prices: `ttl=60`
+- Options chains: `ttl=300`
+- Earnings dates: `ttl=3600`
+- Float / short interest: `ttl=3600`
+
+### Return dict pattern
+Every helper function returns a dict with `"available": True/False` as the first key. The dashboard always checks `if result.get("available"):` before rendering.
+
+---
+
+## Session State
+
+Key session state variables:
+
+| Key | Type | Purpose |
+|-----|------|---------|
+| `watchlist` | list | Ticker symbols for today |
+| `trades` | list | All trade records |
+| `tendencies` | list | Coach tab entries |
+| `account_balance` | float | Current balance |
+| `daily_pnl` | float | Today's P&L |
+| `daily_reds` | int | Red trades today (3 = locked) |
+| `view_mode` | str | 'Simple' or 'Pro' |
+| `ntfy_topic` | str | ntfy.sh push channel |
+| `price_alerts` | list | Active price alerts |
+| `auto_refresh` | bool | 60s auto-refresh toggle |
+
+---
+
+## Data Sources
+
+**Yahoo Finance only** (via yfinance). No paid APIs. Data is ~15-min delayed.
+Never add Alpaca, Tradier, Polygon, or Schwab API calls without asking first.
+The user is aware of the delay — it is acceptable for a preparation tool.
+
+---
+
+## The 9 Tabs
+
+1. **Live Scanner** — #163 VWAP Reclaim, #172 Whole-Dollar, #177 BTC Sync
+2. **My Tickers** — Watchlist cards with Simple/Pro toggle
+3. **Trade Cards** — Strategy reference for strategies 159–178
+4. **Performance** — 10-day challenge, equity curve, daily goal bar
+5. **Journal** — Trade log + Webull CSV import
+6. **Market Regime** — SPY/QQQ/IWM/VIX + sectors + intraday flow
+7. **Catalyst Grader** — SMB 5-check pre-market grading
+8. **Options Planner** — Trade plan + Black-Scholes P&L simulator
+9. **Coach** — Tendencies log + pre-trade checklist
+
+---
+
+## Simple vs Pro Mode
+
+Toggled in sidebar. Affects Tab 2 (My Tickers) only.
+
+- **Simple Mode:** Composite 0–10 signal score, star rating, one-line advice, compact layer detail, earnings bar. Built for phone screens.
+- **Pro Mode:** All 5 individual insider-layer badges + earnings badge + options liquidity.
+
+The `get_signal_strength(symbol)` function in helpers computes the composite score.
+
+---
+
+## Pro Mode Ticker Card Layers (in order)
+
+1. RS vs SPY — `get_rs_vs_spy()`
+2. IV Rank — `get_iv_rank()`
+3. Squeeze Score — `get_squeeze_score()`
+4. Max Pain — `get_max_pain()`
+5. Best Buy Strike — `get_best_buy_strike()` (IV surface fitting)
+6. Earnings Risk — `get_earnings_date()`
+7. Options Liquidity — `get_options_snapshot()`
+
+---
+
+## Deployment
+
+- **Local:** `streamlit run small_account_dashboard.py`
+- **Cloud:** Streamlit Community Cloud, auto-deploys on git push
+- **Mobile:** "Add to Home Screen" in Safari from the Streamlit Cloud URL
+
+---
+
+## Development Workflow
+
 ```bash
-# Use existing conda environment (DO NOT create new virtual environments)
-conda activate tflow
+# Syntax check before committing
+python3 -m py_compile small_account_dashboard.py
+python3 -m py_compile small_account_helpers.py
 
-# Install/update dependencies
-pip install -r requirements.txt
-
-# IMPORTANT: Update requirements.txt every time you add a new package
-pip freeze > requirements.txt
+# Commit and push
+git add small_account_dashboard.py small_account_helpers.py
+git commit -m "description of change"
+git push origin main
 ```
 
-### Running the System
-```bash
-# Run main orchestrator (controls multiple agents)
-python src/main.py
+---
 
-# Run individual agents standalone
-python src/agents/trading_agent.py
-python src/agents/risk_agent.py
-python src/agents/rbi_agent.py
-python src/agents/chat_agent.py
-# ... any agent in src/agents/ can run independently
-```
+## What NOT to Do
 
-### Backtesting
-```bash
-# Use backtesting.py library with pandas_ta or talib for indicators
-# Sample OHLCV data available at:
-# /Users/md/Dropbox/dev/github/moon-dev-ai-agents-for-trading/src/data/rbi/BTC-USD-15m.csv
-```
+- Do not add broker API execution — user trades manually on Webull
+- Do not add crypto functionality — stock options dashboard only
+- Do not move files without asking
+- Do not add paid data source integrations without asking
+- Do not use heavy ML libraries for simple calculations — `math` stdlib is sufficient
+- Do not exceed ~800 lines per file — split into a new file if needed
 
-## Architecture Overview
+---
 
-### Core Structure
-```
-src/
-├── agents/              # 48+ specialized AI agents (each <800 lines)
-├── models/              # LLM provider abstraction (ModelFactory pattern)
-├── strategies/          # User-defined trading strategies
-├── scripts/             # Standalone utility scripts
-├── data/                # Agent outputs, memory, analysis results
-├── config.py            # Global configuration (positions, risk limits, API settings)
-├── main.py              # Main orchestrator for multi-agent loop
-├── nice_funcs.py        # ~1,200 lines of shared trading utilities
-├── nice_funcs_hl.py     # Hyperliquid-specific utilities
-└── ezbot.py             # Legacy trading controller
-```
+## Account Context
 
-### Agent Ecosystem
-
-**Trading Agents**: `trading_agent`, `strategy_agent`, `risk_agent`, `copybot_agent`
-**Market Analysis**: `sentiment_agent`, `whale_agent`, `funding_agent`, `liquidation_agent`, `chartanalysis_agent`
-**Content Creation**: `chat_agent`, `clips_agent`, `tweet_agent`, `video_agent`, `phone_agent`
-**Strategy Development**: `rbi_agent` (Research-Based Inference - codes backtests from videos/PDFs), `research_agent`
-**Specialized**: `sniper_agent`, `solana_agent`, `tx_agent`, `million_agent`, `tiktok_agent`, `compliance_agent`
-
-Each agent can run independently or as part of the main orchestrator loop.
-
-### LLM Integration (Model Factory)
-
-Located at `src/models/model_factory.py` and `src/models/README.md`
-
-**Unified Interface**: All agents use `ModelFactory.create_model()` for consistent LLM access
-**Supported Providers**: Anthropic Claude (default), OpenAI, DeepSeek, Groq, Google Gemini, Ollama (local)
-**Key Pattern**:
-```python
-from src.models.model_factory import ModelFactory
-
-model = ModelFactory.create_model('anthropic')  # or 'openai', 'deepseek', 'groq', etc.
-response = model.generate_response(system_prompt, user_content, temperature, max_tokens)
-```
-
-### Configuration Management
-
-**Primary Config**: `src/config.py`
-- Trading settings: `MONITORED_TOKENS`, `EXCLUDED_TOKENS`, position sizing (`usd_size`, `max_usd_order_size`)
-- Risk management: `CASH_PERCENTAGE`, `MAX_POSITION_PERCENTAGE`, `MAX_LOSS_USD`, `MAX_GAIN_USD`, `MINIMUM_BALANCE_USD`
-- Agent behavior: `SLEEP_BETWEEN_RUNS_MINUTES`, `ACTIVE_AGENTS` dict in `main.py`
-- AI settings: `AI_MODEL`, `AI_MAX_TOKENS`, `AI_TEMPERATURE`
-
-**Environment Variables**: `.env` (see `.env_example`)
-- Trading APIs: `BIRDEYE_API_KEY`, `MOONDEV_API_KEY`, `COINGECKO_API_KEY`
-- AI Services: `ANTHROPIC_KEY`, `OPENAI_KEY`, `DEEPSEEK_KEY`, `GROQ_API_KEY`, `GEMINI_KEY`
-- Blockchain: `SOLANA_PRIVATE_KEY`, `HYPER_LIQUID_ETH_PRIVATE_KEY`, `RPC_ENDPOINT`
-
-### Shared Utilities
-
-**`src/nice_funcs.py`** (~1,200 lines): Core trading functions
-- Data: `token_overview()`, `token_price()`, `get_position()`, `get_ohlcv_data()`
-- Trading: `market_buy()`, `market_sell()`, `chunk_kill()`, `open_position()`
-- Analysis: Technical indicators, PnL calculations, rug pull detection
-
-**`src/agents/api.py`**: `MoonDevAPI` class for custom Moon Dev API endpoints
-- `get_liquidation_data()`, `get_funding_data()`, `get_oi_data()`, `get_copybot_follow_list()`
-
-### Data Flow Pattern
-
-```
-Config/Input → Agent Init → API Data Fetch → Data Parsing →
-LLM Analysis (via ModelFactory) → Decision Output →
-Result Storage (CSV/JSON in src/data/) → Optional Trade Execution
-```
-
-## Development Rules
-
-### File Management
-- **Keep files under 800 lines** - if longer, split into new files and update README
-- **DO NOT move files without asking** - you can create new files but no moving
-- **NEVER create new virtual environments** - use existing `conda activate tflow`
-- **Update requirements.txt** after adding any new package
-
-### Backtesting
-- Use `backtesting.py` library (NOT their built-in indicators)
-- Use `pandas_ta` or `talib` for technical indicators instead
-- Sample data available at `/Users/md/Dropbox/dev/github/moon-dev-ai-agents-for-trading/src/data/rbi/BTC-USD-15m.csv`
-
-### Code Style
-- **No fake/synthetic data** - always use real data or fail the script
-- **Minimal error handling** - user wants to see errors, not over-engineered try/except blocks
-- **No API key exposure** - never show keys from `.env` in output
-
-### Agent Development Pattern
-
-When creating new agents:
-1. Inherit from base patterns in existing agents
-2. Use `ModelFactory` for LLM access
-3. Store outputs in `src/data/[agent_name]/`
-4. Make agent independently executable (standalone script)
-5. Add configuration to `config.py` if needed
-6. Follow naming: `[purpose]_agent.py`
-
-### Testing Strategies
-
-Place strategy definitions in `src/strategies/` folder:
-```python
-class YourStrategy(BaseStrategy):
-    name = "strategy_name"
-    description = "what it does"
-
-    def generate_signals(self, token_address, market_data):
-        return {
-            "action": "BUY"|"SELL"|"NOTHING",
-            "confidence": 0-100,
-            "reasoning": "explanation"
-        }
-```
-
-## Important Context
-
-### Risk-First Philosophy
-- Risk Agent runs first in main loop before any trading decisions
-- Configurable circuit breakers (`MAX_LOSS_USD`, `MINIMUM_BALANCE_USD`)
-- AI confirmation for position-closing decisions (configurable via `USE_AI_CONFIRMATION`)
-
-### Data Sources
-1. **BirdEye API** - Solana token data (price, volume, liquidity, OHLCV)
-2. **Moon Dev API** - Custom signals (liquidations, funding rates, OI, copybot data)
-3. **CoinGecko API** - 15,000+ token metadata, market caps, sentiment
-4. **Helius RPC** - Solana blockchain interaction
-
-### Autonomous Execution
-- Main loop runs every 15 minutes by default (`SLEEP_BETWEEN_RUNS_MINUTES`)
-- Agents handle errors gracefully and continue execution
-- Keyboard interrupt for graceful shutdown
-- All agents log to console with color-coded output (termcolor)
-
-### AI-Driven Strategy Generation (RBI Agent)
-1. User provides: YouTube video URL / PDF / trading idea text
-2. DeepSeek-R1 analyzes and extracts strategy logic
-3. Generates backtesting.py compatible code
-4. Executes backtest and returns performance metrics
-5. Cost: ~$0.027 per backtest execution (~6 minutes)
-
-## Common Patterns
-
-### Adding New Agent
-1. Create `src/agents/your_agent.py`
-2. Implement standalone execution logic
-3. Add to `ACTIVE_AGENTS` in `main.py` if needed for orchestration
-4. Use `ModelFactory` for LLM calls
-5. Store results in `src/data/your_agent/`
-
-### Switching AI Models
-Edit `config.py`:
-```python
-AI_MODEL = "claude-3-haiku-20240307"  # Fast, cheap
-# AI_MODEL = "claude-3-sonnet-20240229"  # Balanced
-# AI_MODEL = "claude-3-opus-20240229"  # Most powerful
-```
-
-Or use different models per agent via ModelFactory:
-```python
-model = ModelFactory.create_model('deepseek')  # Reasoning tasks
-model = ModelFactory.create_model('groq')      # Fast inference
-```
-
-### Reading Market Data
-```python
-from src.nice_funcs import token_overview, get_ohlcv_data, token_price
-
-# Get comprehensive token data
-overview = token_overview(token_address)
-
-# Get price history
-ohlcv = get_ohlcv_data(token_address, timeframe='1H', days_back=3)
-
-# Get current price
-price = token_price(token_address)
-```
-
-## Project Philosophy
-
-This is an **experimental, educational project** demonstrating AI agent patterns through algorithmic trading:
-- No guarantees of profitability (substantial risk of loss)
-- Open source and free for learning
-- YouTube-driven development with weekly updates
-- Community-supported via Discord
-- No token associated with project (avoid scams)
-
-The goal is to democratize AI agent development and show practical multi-agent orchestration patterns that can be applied beyond trading.
+- $250 starting balance, Webull cash account, Level 2 options
+- Trading window: 9:30–10:00 AM CT (10:30–11:00 AM ET)
+- Stop loss: -30% premium (hard rule, no exceptions)
+- Targets: +15% (half exit), +25% (full exit)
+- Max risk per trade: 10–15% of account (1 contract only)
+- 3 red trades in one day = journal locks automatically
+- Long-term goal: $250 → $2,000, then Level 3 + XSP credit spreads

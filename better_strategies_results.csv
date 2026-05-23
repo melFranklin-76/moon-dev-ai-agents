@@ -1,0 +1,4 @@
+Strategy,Return %,Sharpe,Win Rate %,Max DD %,Trades
+Dual MA + Volume Filter,80.2,0.37,66.7,-25.7,6
+Bollinger Bands Mean Reversion,61.2,0.23,78.3,-64.1,23
+RSI Oscillator,-5.5,-0.03,69.6,-57.8,23

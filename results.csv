@@ -1,0 +1,8 @@
+Fast,Slow,Description,Return %,Sharpe,Win Rate %,Max DD %,Trades
+10,20,Fast momentum (your first test),533.4,0.86,60.9,-20.0,46
+5,20,Very fast entry,388.0,0.77,48.2,-29.7,56
+10,30,Medium trend,404.6,0.77,50.0,-31.2,32
+10,50,Long trend following,244.5,0.62,52.6,-29.3,19
+20,50,Slower entry,163.9,0.5,42.1,-37.3,19
+15,45,3:1 ratio,169.1,0.49,50.0,-33.2,22
+20,100,Position trading,126.2,0.42,53.8,-46.8,13
