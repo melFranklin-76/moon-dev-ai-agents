@@ -1,0 +1,23 @@
+# Xcode build artifacts
+build/
+DerivedData/
+*.xcarchive
+*.ipa
+
+# Xcode user state (machine-specific)
+*.xcuserstate
+xcuserdata/
+*.xccheckout
+*.moved-aside
+
+# macOS
+.DS_Store
+.AppleDouble
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# CocoaPods (if ever added)
+Pods/
+Podfile.lock
