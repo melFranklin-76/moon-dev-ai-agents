@@ -152,12 +152,15 @@ def scan_momentum_universe(
     max_price: float = 100.0,
     min_change: float = 3.0,
     min_volume: int = 500_000,
-    min_rel_vol: float = 2.0,
+    min_rel_vol: float = 1.0,
 ) -> list:
     """
     Scan Yahoo Finance day_gainers + most_actives.
-    Filter by momentum criteria, flag options availability.
-    Returns list of result dicts sorted by % change descending.
+    Filter by momentum criteria, return list of result dicts sorted by % change.
+
+    The very last entry in the returned list (if non-empty) carries no symbol
+    and instead holds diagnostic counts so the UI can explain a zero result.
+    Callers should filter out any row where `symbol` is falsy.
     """
     raw: dict = {}
     for screen in ("day_gainers", "most_actives"):
@@ -166,6 +169,8 @@ def scan_momentum_universe(
             if sym and sym not in raw:
                 raw[sym] = q
 
+    # Per-filter rejection counts
+    rejected = {"price": 0, "change": 0, "volume": 0, "rel_vol": 0}
     results = []
     for sym, q in raw.items():
         price   = float(q.get("regularMarketPrice", 0) or 0)
@@ -175,12 +180,16 @@ def scan_momentum_universe(
         rel_vol = round(volume / avg_vol, 2) if avg_vol > 0 else 0.0
 
         if not (min_price <= price <= max_price):
+            rejected["price"] += 1
             continue
         if change < min_change:
+            rejected["change"] += 1
             continue
         if volume < min_volume:
+            rejected["volume"] += 1
             continue
         if rel_vol < min_rel_vol:
+            rejected["rel_vol"] += 1
             continue
 
         results.append({
@@ -193,6 +202,12 @@ def scan_momentum_universe(
         })
 
     results.sort(key=lambda x: x["change"], reverse=True)
+
+    # Append diagnostic sentinel row so the UI can show why zero passed
+    results.append({
+        "symbol": "",
+        "_diag":  {"raw_count": len(raw), "rejected": rejected},
+    })
     return results
 
 

@@ -561,7 +561,11 @@ with tab1:
         f_min_price  = fc1.number_input("Min Price ($)",   value=2.0,   step=0.5,  min_value=0.5)
         f_max_price  = fc2.number_input("Max Price ($)",   value=100.0, step=5.0,  min_value=1.0)
         f_min_change = fc3.number_input("Min Change (%)",  value=3.0,   step=0.5,  min_value=0.5)
-        f_min_relvol = fc4.number_input("Min Rel Vol (x)", value=2.0,   step=0.5,  min_value=0.5)
+        f_min_relvol = fc4.number_input(
+            "Min Rel Vol (x)", value=1.0, step=0.1, min_value=0.1,
+            help="Volume vs 3-month average. Stays under 1.0x most of the morning — "
+                 "set to 0.5x in pre-market, 1.0x mid-day, 2.0x+ for explosive movers only.",
+        )
 
     scan_col, info_col = st.columns([1, 3])
     run_scan = scan_col.button("🚀 Scan Universe Now", type="primary", use_container_width=True)
@@ -577,7 +581,10 @@ with tab1:
             )
         st.session_state['_last_universe'] = universe
 
-    universe = st.session_state.get('_last_universe', [])
+    raw_universe = st.session_state.get('_last_universe', [])
+    # Split sentinel diagnostic row from real results
+    _diag    = next((r['_diag'] for r in raw_universe if not r.get('symbol')), None)
+    universe = [r for r in raw_universe if r.get('symbol')]
 
     if universe:
         st.markdown(f"**{len(universe)} stocks meet criteria** — click ➕ to add to watchlist · always verify options chain on Webull before trading")
@@ -609,6 +616,29 @@ with tab1:
                 st.session_state.news_cache[r['symbol']] = get_news(r['symbol'])
                 st.cache_data.clear()
                 st.rerun()
+    elif _diag:
+        # Scanner ran but nothing passed — show exactly what knocked everything out
+        rej = _diag['rejected']
+        bottleneck = max(rej, key=rej.get)
+        labels = {
+            "price":   f"price outside ${f_min_price:g}–${f_max_price:g}",
+            "change":  f"% change below {f_min_change:g}%",
+            "volume":  "volume below 500K",
+            "rel_vol": f"rel-volume below {f_min_relvol:g}x",
+        }
+        st.warning(
+            f"**0 of {_diag['raw_count']} movers passed.** "
+            f"Biggest filter: **{labels[bottleneck]}** ({rej[bottleneck]} rejected). "
+            f"Full breakdown: price {rej['price']}, change {rej['change']}, "
+            f"volume {rej['volume']}, rel-vol {rej['rel_vol']}."
+        )
+        if bottleneck == "rel_vol":
+            st.caption(
+                "💡 Rel-volume stays under 1.0x most of the morning until volume builds. "
+                "Try lowering **Min Rel Vol** to 0.5x pre-market, or 0.7x in the first hour."
+            )
+        elif bottleneck == "change":
+            st.caption("💡 The whole tape may be flat today — try lowering **Min Change** to 2.0%.")
     elif not run_scan:
         st.info("Hit **Scan Universe Now** to find today's optionable movers. Do this each morning after 8:30 AM CT.")
 
