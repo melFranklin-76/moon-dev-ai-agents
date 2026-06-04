@@ -8,3 +8,5 @@ python-dotenv>=1.0.0
 requests>=2.31.0
 gspread>=6.0.0
 google-auth>=2.0.0
+backtesting>=0.3.3
+pandas_ta>=0.3.14b

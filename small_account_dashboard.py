@@ -48,6 +48,7 @@ try:
         get_signal_strength,
         get_best_buy_strike,
         get_earnings_date,
+        get_volume_spike,
     )
 except ImportError:
     def get_options_snapshot(symbol: str) -> dict:   return {"available": False}
@@ -64,6 +65,7 @@ except ImportError:
                 "emoji": "⬜", "stars": "☆"*10, "advice": "", "detail": {}}
     def get_best_buy_strike(symbol: str) -> dict:    return {"available": False}
     def get_earnings_date(symbol: str) -> dict:      return {"available": False}
+    def get_volume_spike(symbol: str) -> dict:       return {"available": False}
 
 try:
     from streamlit_autorefresh import st_autorefresh as _st_autorefresh
@@ -984,6 +986,25 @@ with tab2:
                 else:
                     earn_html = ""
 
+                # Volume Spike / Capitulation badge
+                vs = get_volume_spike(sym)
+                if vs.get("available"):
+                    vs_html = (
+                        f"<p style='margin:6px 0 2px 0;'>"
+                        f"<span style='background:{vs['color']}22; color:{vs['color']}; "
+                        f"border:1px solid {vs['color']}; border-radius:5px; "
+                        f"padding:2px 8px; font-weight:bold; font-size:13px;'>"
+                        f"{vs['emoji']} {vs['grade']} &nbsp; {vs['spike_ratio']:.1f}× vol &nbsp;·&nbsp; "
+                        f"{vs['direction']}"
+                        f"</span></p>"
+                        f"<p style='color:#8b92a8; font-size:11px; margin:2px 0;'>"
+                        f"{vs['advice']} &nbsp;·&nbsp; "
+                        f"cur: {vs['cur_vol']:,} &nbsp; avg: {vs['avg_vol']:,}"
+                        f"</p>"
+                    )
+                else:
+                    vs_html = ""
+
                 st.markdown(f"""
                 <div class="trade-card">
                 <h2>${sym}</h2>
@@ -997,6 +1018,7 @@ with tab2:
                 {mp_html}
                 {bbs_html}
                 {earn_html}
+                {vs_html}
                 <hr>
                 {liq_html}
                 <p><strong>Strategies:</strong> #163 VWAP · #172 Whole-$ · #177 BTC-sync</p>
@@ -1309,6 +1331,86 @@ with tab5:
             except Exception as _e:
                 st.error(f"Error reading CSV: {_e}")
                 st.caption("Try exporting again from Webull with the default settings.")
+
+    # ── Google Sheets Export ──────────────────────────────────────────────────
+    with st.expander("📊 Export to Google Sheets", expanded=False):
+        st.markdown("""
+        **Sync your trades to Google Sheets for advanced analysis and sharing.**
+
+        [How to get your Sheet ID](https://developers.google.com/sheets/api/guides/concepts#spreadsheet_id)
+        — it's the long string in the URL between `/d/` and `/edit`.
+        """)
+        _gs_sheet_id  = st.text_input("Google Sheet ID", placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms", key="gs_sheet_id")
+        _gs_tab_name  = st.text_input("Sheet Tab Name", value="Trades", key="gs_tab_name")
+
+        if st.button("Sync Now", type="primary", key="gs_sync_btn"):
+            try:
+                import gspread
+                from google.oauth2.service_account import Credentials as _GCreds
+
+                _CREDS_PATH = Path(__file__).parent / "src" / "data" / "small_account" / "google_creds.json"
+                if not _CREDS_PATH.exists():
+                    st.error(f"""
+**google_creds.json not found** at `{_CREDS_PATH}`
+
+**How to set it up:**
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a project → Enable **Google Sheets API** + **Google Drive API**
+3. IAM & Admin → Service Accounts → Create service account
+4. Download the JSON key file
+5. Save it as: `{_CREDS_PATH}`
+6. Share your Google Sheet with the service account email (found in the JSON)
+                    """)
+                elif not _gs_sheet_id.strip():
+                    st.warning("Enter a Google Sheet ID above.")
+                else:
+                    _scopes  = [
+                        "https://www.googleapis.com/auth/spreadsheets",
+                        "https://www.googleapis.com/auth/drive",
+                    ]
+                    _creds   = _GCreds.from_service_account_file(str(_CREDS_PATH), scopes=_scopes)
+                    _gc      = gspread.authorize(_creds)
+                    _sh      = _gc.open_by_key(_gs_sheet_id.strip())
+                    _tab_nm  = _gs_tab_name.strip() or "Trades"
+                    try:
+                        _ws  = _sh.worksheet(_tab_nm)
+                    except gspread.WorksheetNotFound:
+                        _ws  = _sh.add_worksheet(title=_tab_nm, rows=1000, cols=20)
+                        _ws.append_row(TRADE_FIELDS)
+
+                    # Load existing rows to deduplicate
+                    _existing = _ws.get_all_records()
+                    _exist_keys = set()
+                    for _row in _existing:
+                        _k = (
+                            str(_row.get('date', ''))[:10],
+                            str(_row.get('ticker', '')).upper(),
+                            str(_row.get('side', '')).lower(),
+                        )
+                        _exist_keys.add(_k)
+
+                    _new_trades = []
+                    for _t in st.session_state.get('trades', []):
+                        _k = (
+                            str(_t.get('date', ''))[:10],
+                            str(_t.get('ticker', '')).upper(),
+                            str(_t.get('side', '')).lower(),
+                        )
+                        if _k not in _exist_keys:
+                            _new_trades.append(_t)
+
+                    for _nt in _new_trades:
+                        _ws.append_row([str(_nt.get(f, '')) for f in TRADE_FIELDS])
+
+                    st.success(f"Synced {len(_new_trades)} new trades to Google Sheets ({_tab_nm}).")
+
+            except ImportError:
+                st.info(
+                    "gspread / google-auth not installed. Run: "
+                    "`pip install gspread>=6.0.0 google-auth>=2.0.0`"
+                )
+            except Exception as _gs_err:
+                st.error(f"Google Sheets sync failed: {_gs_err}")
 
     with st.expander("➕ Log New Trade", expanded=False and not _blocked):
         c1, c2 = st.columns(2)
@@ -1977,6 +2079,120 @@ with tab8:
                 st.markdown(f"- On Webull: need **Level 3 options approval** for credit spreads")
             else:
                 st.info("Enter XSP price and credit amount to calculate the spread.")
+
+    # ── Quick Strategy Backtest ───────────────────────────────────────────────
+    st.markdown("---")
+    with st.expander("▶ Quick Strategy Backtest", expanded=False):
+        st.caption("Run a simple backtest directly in the dashboard using real OHLCV data.")
+
+        _bt_sym   = st.text_input("Symbol", value=st.session_state.get('selected_ticker', 'SPY'), key="bt_sym").upper().strip() or "SPY"
+        _bt_strat = st.selectbox("Strategy", ["MACD Crossover", "SMA Breakout", "Volume Spike Reversal"], key="bt_strat")
+        _bt_days  = st.slider("Lookback (days)", min_value=60, max_value=180, value=90, key="bt_days")
+
+        if st.button("Run Backtest", type="primary", key="bt_run"):
+            try:
+                import yfinance as _yf_bt
+                _bt_df = _yf_bt.Ticker(_bt_sym).history(period=f"{_bt_days}d", interval='1d')
+                if _bt_df is None or _bt_df.empty or len(_bt_df) < 20:
+                    st.warning(f"Not enough data for {_bt_sym}. Try a different symbol or shorter lookback.")
+                else:
+                    try:
+                        from backtesting import Backtest, Strategy
+                        import pandas_ta as ta
+
+                        _bt_df = _bt_df[['Open', 'High', 'Low', 'Close', 'Volume']].copy()
+                        _bt_df.index = pd.to_datetime(_bt_df.index).tz_localize(None)
+                        _bt_df.columns = ['Open', 'High', 'Low', 'Close', 'Volume']
+
+                        if _bt_strat == "MACD Crossover":
+                            class _S(Strategy):
+                                def init(self):
+                                    _c = pd.Series(self.data.Close)
+                                    _macd = ta.macd(_c)
+                                    if _macd is None or _macd.empty:
+                                        self._macd_line   = self.I(lambda: _c * 0)
+                                        self._signal_line = self.I(lambda: _c * 0)
+                                    else:
+                                        _ml = _macd.iloc[:, 0].values
+                                        _sl = _macd.iloc[:, 1].values
+                                        self._macd_line   = self.I(lambda: _ml)
+                                        self._signal_line = self.I(lambda: _sl)
+                                def next(self):
+                                    if self._macd_line[-1] > self._signal_line[-1] and self._macd_line[-2] <= self._signal_line[-2]:
+                                        if not self.position:
+                                            self.buy()
+                                    elif self._macd_line[-1] < self._signal_line[-1] and self._macd_line[-2] >= self._signal_line[-2]:
+                                        if self.position:
+                                            self.position.close()
+
+                        elif _bt_strat == "SMA Breakout":
+                            class _S(Strategy):
+                                def init(self):
+                                    _c = pd.Series(self.data.Close)
+                                    _sma_vals = _c.rolling(20).mean().values
+                                    self._sma = self.I(lambda: _sma_vals)
+                                def next(self):
+                                    if self.data.Close[-1] > self._sma[-1] and self.data.Close[-2] <= self._sma[-2]:
+                                        if not self.position:
+                                            self.buy()
+                                    elif self.data.Close[-1] < self._sma[-1] and self.data.Close[-2] >= self._sma[-2]:
+                                        if self.position:
+                                            self.position.close()
+
+                        else:  # Volume Spike Reversal
+                            class _S(Strategy):
+                                _bar_count = 0
+                                def init(self):
+                                    _v = pd.Series(self.data.Volume)
+                                    _avg_vals = _v.rolling(20).mean().values
+                                    self._avg_vol = self.I(lambda: _avg_vals)
+                                    self._entry_bar = 0
+                                def next(self):
+                                    _bar = len(self.data.Close)
+                                    _c   = self.data.Close
+                                    _v   = self.data.Volume
+                                    if self.position:
+                                        if _bar - self._entry_bar >= 5:
+                                            self.position.close()
+                                    else:
+                                        _avg = self._avg_vol[-1]
+                                        if _avg > 0 and _v[-1] > 2 * _avg:
+                                            _bar_chg = (_c[-1] - _c[-2]) / _c[-2] if _c[-2] > 0 else 0
+                                            if _bar_chg < -0.01:
+                                                self.buy()
+                                                self._entry_bar = _bar
+
+                        _bt_obj = Backtest(_bt_df, _S, cash=10_000, commission=0.002)
+                        _stats  = _bt_obj.run()
+
+                        _ret     = round(float(_stats.get('Return [%]', 0)), 2)
+                        _dd      = round(float(_stats.get('Max. Drawdown [%]', 0)), 2)
+                        _trades  = int(_stats.get('# Trades', 0))
+                        _winrate = round(float(_stats.get('Win Rate [%]', 0)), 1)
+                        _sharpe  = round(float(_stats.get('Sharpe Ratio', 0) or 0), 2)
+
+                        _ret_color  = "normal" if _ret >= 0 else "inverse"
+                        _dd_color   = "inverse"
+
+                        _m1, _m2, _m3, _m4, _m5 = st.columns(5)
+                        _m1.metric("Return %",     f"{_ret:+.2f}%",  delta_color=_ret_color)
+                        _m2.metric("Max Drawdown", f"{_dd:.2f}%",    delta_color=_dd_color)
+                        _m3.metric("Sharpe Ratio", f"{_sharpe:.2f}")
+                        _m4.metric("# Trades",     str(_trades))
+                        _m5.metric("Win Rate",     f"{_winrate:.1f}%")
+
+                        st.caption("3 months of data is thin — use as directional filter only")
+
+                    except ImportError:
+                        st.warning(
+                            "backtesting or pandas_ta not installed. Run: "
+                            "`pip install backtesting>=0.3.3 pandas_ta`"
+                        )
+                    except Exception as _bt_err:
+                        st.warning(f"Backtest error: {_bt_err}")
+
+            except Exception as _outer_err:
+                st.warning(f"Data fetch error: {_outer_err}")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TAB 9  COACH

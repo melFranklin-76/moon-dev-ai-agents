@@ -1177,6 +1177,67 @@ def get_best_buy_strike(symbol: str) -> dict:
         return {"available": False}
 
 
+# ── Volume Spike / Capitulation Signal ───────────────────────────────────────
+@st.cache_data(ttl=60)
+def get_volume_spike(symbol: str) -> dict:
+    """
+    Detects unusual volume vs 20-bar average on 5-min bars.
+    Returns spike ratio, direction, grade, color, emoji, advice.
+    """
+    try:
+        df = yf.Ticker(symbol).history(period='2d', interval='5m')
+        if df.empty or len(df) < 22:
+            return {"available": False}
+
+        df = df.copy()
+        df['avg_vol'] = df['Volume'].rolling(20).mean()
+        df = df.dropna(subset=['avg_vol'])
+        if df.empty:
+            return {"available": False}
+
+        cur_vol  = int(df['Volume'].iloc[-1])
+        avg_vol  = float(df['avg_vol'].iloc[-1])
+        if avg_vol <= 0:
+            return {"available": False}
+
+        spike_ratio = cur_vol / avg_vol
+        last_close  = float(df['Close'].iloc[-1])
+        prev_close  = float(df['Close'].iloc[-2])
+        direction   = "UP" if last_close >= prev_close else "DOWN"
+
+        if spike_ratio >= 3.0:
+            grade, color, emoji = "CAPITULATION", "#ff4444", "🔥"
+        elif spike_ratio >= 2.0:
+            grade, color, emoji = "HIGH VOLUME", "#ff8c00", "⚡"
+        elif spike_ratio >= 1.5:
+            grade, color, emoji = "ELEVATED", "#ffd700", "📈"
+        else:
+            grade, color, emoji = "NORMAL", "#888888", "💤"
+
+        if grade == "CAPITULATION" and direction == "DOWN":
+            advice = "Possible reversal — watch for bounce entry"
+        elif grade == "CAPITULATION" and direction == "UP":
+            advice = "Momentum surge — breakout or blow-off top"
+        elif grade == "HIGH VOLUME":
+            advice = "Watch for follow-through"
+        else:
+            advice = "No unusual volume"
+
+        return {
+            "available":   True,
+            "spike_ratio": round(spike_ratio, 2),
+            "direction":   direction,
+            "grade":       grade,
+            "color":       color,
+            "emoji":       emoji,
+            "advice":      advice,
+            "avg_vol":     int(avg_vol),
+            "cur_vol":     cur_vol,
+        }
+    except Exception:
+        return {"available": False}
+
+
 # ── Earnings Date & Risk ───────────────────────────────────────────────────────
 @st.cache_data(ttl=3600)
 def get_earnings_date(symbol: str) -> dict:
