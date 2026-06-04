@@ -1043,6 +1043,203 @@ def get_signal_strength(symbol: str) -> dict:
     }
 
 
+# ── IV Surface Scanner (multi-expiration) ────────────────────────────────────
+def scan_iv_surface(
+    symbol: str,
+    dte_min: int = 7,
+    dte_max: int = 60,
+    opt_type: str = "calls",   # "calls" or "puts"
+    min_oi: int = 10,
+    min_vol: int = 0,
+    delta_min: float = 0.10,
+    delta_max: float = 0.75,
+) -> dict:
+    """
+    Multi-expiration IV surface scan.
+
+    For each expiration in [dte_min, dte_max], fit a quadratic smile to the
+    selected option type, compute residuals (actual_IV − fitted_IV), and
+    rank every option by how cheap (residual < 0) or rich (residual > 0)
+    it sits vs its smile.
+
+    Returns:
+      {
+        "available": True,
+        "symbol": symbol,
+        "spot": float,
+        "expirations": [...list of "YYYY-MM-DD" strings...],
+        "per_expiry": {
+            "YYYY-MM-DD": {
+                "dte": int,
+                "strikes": np.array,
+                "ivs":     np.array,
+                "fitted":  np.array,
+                "residuals_pp": np.array,
+                "df": pd.DataFrame with columns:
+                    strike, bid, ask, mid, iv_pct, fitted_iv_pct, residual_pp,
+                    delta, oi, volume, spread_pp, spread_warn (bool), oi_warn (bool)
+            },
+            ...
+        },
+        "top_candidates": pd.DataFrame with top 10 cheapest options across
+            ALL expirations.
+      }
+
+    On failure (no data, <5 strikes in any expiry, etc): {"available": False}
+    """
+    try:
+        t = yf.Ticker(symbol)
+        exps = t.options
+        if not exps:
+            return {"available": False}
+
+        # ── Spot ──────────────────────────────────────────────────────────────
+        hist = t.history(period='2d', interval='1d')
+        if hist.empty:
+            return {"available": False}
+        spot = float(hist['Close'].iloc[-1])
+
+        now_ts = pd.Timestamp.now()
+        per_expiry: dict = {}
+        good_expiries: list = []
+        all_rows: list = []
+
+        for exp in exps:
+            try:
+                exp_ts = pd.Timestamp(exp)
+                dte = (exp_ts - now_ts).days
+                if dte < dte_min or dte > dte_max:
+                    continue
+
+                chain = t.option_chain(exp)
+                df = (chain.calls if opt_type == "calls" else chain.puts).copy()
+                if df is None or df.empty:
+                    continue
+
+                # ── Basic filters ────────────────────────────────────────────
+                df = df[
+                    (df['impliedVolatility'] > 0.01) &
+                    (df['strike'] >= spot * 0.70) &
+                    (df['strike'] <= spot * 1.50)
+                ].reset_index(drop=True)
+
+                # Open interest / volume gates
+                df['openInterest'] = df.get('openInterest', 0).fillna(0).astype(int)
+                df['volume']       = df.get('volume', 0).fillna(0).astype(int)
+                df = df[(df['openInterest'] >= min_oi) & (df['volume'] >= min_vol)].reset_index(drop=True)
+
+                if len(df) < 5:
+                    continue
+
+                strikes = df['strike'].values.astype(float)
+                ivs     = df['impliedVolatility'].values.astype(float)
+
+                # ── Quadratic smile fit ──────────────────────────────────────
+                coeffs = np.polyfit(strikes, ivs, 2)
+                fitted = np.polyval(coeffs, strikes)
+                residuals_pp = (ivs - fitted) * 100.0
+
+                # ── Black-Scholes delta per row (no risk-free rate) ──────────
+                T = max(dte, 1) / 365.0
+                deltas = np.zeros(len(df))
+                for i, (k, iv) in enumerate(zip(strikes, ivs)):
+                    try:
+                        if iv <= 0 or T <= 0 or k <= 0:
+                            deltas[i] = 0.0
+                            continue
+                        d1 = (math.log(spot / k) + 0.5 * iv * iv * T) / (iv * math.sqrt(T))
+                        n_d1 = 0.5 * (1.0 + math.erf(d1 / math.sqrt(2)))
+                        if opt_type == "calls":
+                            deltas[i] = n_d1
+                        else:
+                            deltas[i] = n_d1 - 1.0
+                    except Exception:
+                        deltas[i] = 0.0
+
+                # ── Bid/ask/mid/spread ───────────────────────────────────────
+                bids = df.get('bid', 0).fillna(0).astype(float).values
+                asks = df.get('ask', 0).fillna(0).astype(float).values
+                mids = (bids + asks) / 2.0
+                spread_pp = np.where(mids > 0, (asks - bids) / mids * 100.0, 0.0)
+
+                spread_warn = spread_pp > 10.0
+                oi_warn = df['openInterest'].values < 50
+
+                # ── Delta filter (absolute value for puts) ───────────────────
+                abs_deltas = np.abs(deltas)
+                keep_mask = (abs_deltas >= delta_min) & (abs_deltas <= delta_max)
+
+                if keep_mask.sum() < 1:
+                    # Not enough rows after delta filter — still keep the smile data
+                    # but skip if everything filtered out
+                    continue
+
+                # Build the filtered DataFrame for display / candidates
+                out_df = pd.DataFrame({
+                    'strike':        strikes,
+                    'bid':           bids,
+                    'ask':           asks,
+                    'mid':           mids,
+                    'iv_pct':        ivs * 100.0,
+                    'fitted_iv_pct': fitted * 100.0,
+                    'residual_pp':   residuals_pp,
+                    'delta':         deltas,
+                    'oi':            df['openInterest'].values,
+                    'volume':        df['volume'].values,
+                    'spread_pp':     spread_pp,
+                    'spread_warn':   spread_warn,
+                    'oi_warn':       oi_warn,
+                })
+                out_df = out_df[keep_mask].reset_index(drop=True)
+                if len(out_df) < 1:
+                    continue
+
+                per_expiry[exp] = {
+                    'dte':          int(dte),
+                    'strikes':      strikes,
+                    'ivs':          ivs,
+                    'fitted':       fitted,
+                    'residuals_pp': residuals_pp,
+                    'df':           out_df,
+                }
+                good_expiries.append(exp)
+
+                # Collect rows for top-candidates table
+                tc_rows = out_df.copy()
+                tc_rows['expiry'] = exp
+                tc_rows['dte']    = int(dte)
+                all_rows.append(tc_rows)
+
+            except Exception:
+                continue
+
+        if not good_expiries:
+            return {"available": False}
+
+        # ── Build top_candidates across all expirations ──────────────────────
+        if all_rows:
+            all_df = pd.concat(all_rows, ignore_index=True)
+            top_candidates = all_df.sort_values('residual_pp', ascending=True).head(10).reset_index(drop=True)
+            top_candidates = top_candidates[[
+                'expiry', 'dte', 'strike', 'mid', 'iv_pct', 'residual_pp',
+                'delta', 'oi', 'volume', 'spread_pp', 'spread_warn', 'oi_warn',
+            ]]
+        else:
+            top_candidates = pd.DataFrame()
+
+        return {
+            "available":      True,
+            "symbol":         symbol,
+            "spot":           spot,
+            "expirations":    good_expiries,
+            "per_expiry":     per_expiry,
+            "top_candidates": top_candidates,
+        }
+
+    except Exception:
+        return {"available": False}
+
+
 # ── Best Buy Strike (IV Surface Fitting) ──────────────────────────────────────
 @st.cache_data(ttl=300)
 def get_best_buy_strike(symbol: str) -> dict:
