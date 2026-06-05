@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		1E6C43DA2FC4C652004473AA /* NetworkMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E6C43D92FC4C652004473AA /* NetworkMonitor.swift */; };
+		1E77A5602FD2D0B9000BCCA6 /* CookieStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E77A55F2FD2D0B9000BCCA6 /* CookieStore.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -32,6 +33,7 @@
 		1E2E55622FC2AA7F00B6345C /* ScalperDashboardTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ScalperDashboardTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		1E2E556C2FC2AA7F00B6345C /* ScalperDashboardUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ScalperDashboardUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		1E6C43D92FC4C652004473AA /* NetworkMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkMonitor.swift; sourceTree = "<group>"; };
+		1E77A55F2FD2D0B9000BCCA6 /* CookieStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CookieStore.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -85,6 +87,7 @@
 				1E2E556F2FC2AA7F00B6345C /* ScalperDashboardUITests */,
 				1E2E55542FC2AA7D00B6345C /* Products */,
 				1E6C43D92FC4C652004473AA /* NetworkMonitor.swift */,
+				1E77A55F2FD2D0B9000BCCA6 /* CookieStore.swift */,
 			);
 			sourceTree = "<group>";
 		};
@@ -242,6 +245,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				1E77A5602FD2D0B9000BCCA6 /* CookieStore.swift in Sources */,
 				1E6C43DA2FC4C652004473AA /* NetworkMonitor.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
