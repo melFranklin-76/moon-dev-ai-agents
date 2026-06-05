@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import Combine
 
 final class NetworkMonitor: ObservableObject {
     static let shared = NetworkMonitor()
