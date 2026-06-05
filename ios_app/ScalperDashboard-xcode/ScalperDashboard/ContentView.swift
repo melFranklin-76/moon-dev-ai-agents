@@ -38,8 +38,7 @@ struct ContentView: View {
                     .transition(.opacity)
             }
         }
-        .onChange(of: network.isConnected) { connected in
-            // If we were offline and come back online, clear error and try again
+        .onChange(of: network.isConnected) { _, connected in
             if connected {
                 hasError  = false
                 isLoading = true
