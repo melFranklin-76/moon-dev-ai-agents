@@ -64,8 +64,13 @@ except ImportError:
     def get_max_pain(symbol: str) -> dict:           return {"available": False}
     def get_intraday_sector_flow() -> list:          return []
     def get_signal_strength(symbol: str) -> dict:
+        _d = {"rs":  {"pts": 0, "note": "—", "label": "—", "color": "#8b92a8"},
+              "iv":  {"pts": 0, "note": "—", "grade": "—", "color": "#8b92a8"},
+              "sq":  {"pts": 0, "note": "—", "score": 0,   "color": "#8b92a8"},
+              "mp":  {"pts": 0, "note": "—", "strike": 0,  "color": "#8b92a8"},
+              "liq": {"pts": 0, "note": "—"}}
         return {"score": 0, "grade": "—", "color": "#8b92a8",
-                "emoji": "⬜", "stars": "☆"*10, "advice": "", "detail": {}}
+                "emoji": "⬜", "stars": "☆"*10, "advice": "", "detail": _d}
     def get_best_buy_strike(symbol: str) -> dict:    return {"available": False}
     def get_earnings_date(symbol: str) -> dict:      return {"available": False}
     def get_volume_spike(symbol: str) -> dict:       return {"available": False}
