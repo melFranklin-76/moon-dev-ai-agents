@@ -126,7 +126,34 @@ _YF_SCREEN_URL = "https://query1.finance.yahoo.com/v1/finance/screener/predefine
 
 
 def _fetch_screen(screen_id: str, count: int = 100) -> list:
-    """Pull quotes from a Yahoo Finance predefined screener."""
+    """Pull quotes from a Yahoo Finance predefined screener.
+
+    Yahoo Finance now requires crumb auth on the raw HTTP endpoint, so we
+    try the yfinance built-in Screener first (it manages auth internally),
+    then fall back to the legacy raw request.
+    """
+    # yfinance 0.2.40+ / 1.x — Screener class handles crumb auth automatically
+    if hasattr(yf, 'Screener'):
+        try:
+            sc = yf.Screener()
+            sc.set_predefined_body(screen_id)
+            quotes = (sc.response or {}).get("quotes", [])
+            if quotes:
+                return quotes[:count]
+        except Exception:
+            pass
+
+    # yfinance 1.x function-based API
+    if hasattr(yf, 'screen'):
+        try:
+            resp = yf.screen(screen_id, size=count)
+            quotes = (resp or {}).get("quotes", [])
+            if quotes:
+                return quotes
+        except Exception:
+            pass
+
+    # Legacy raw HTTP — may fail if Yahoo Finance requires crumb
     try:
         r = requests.get(
             _YF_SCREEN_URL,
@@ -134,6 +161,7 @@ def _fetch_screen(screen_id: str, count: int = 100) -> list:
             headers=_YF_HEADERS,
             timeout=15,
         )
+        r.raise_for_status()
         return r.json().get("finance", {}).get("result", [{}])[0].get("quotes", [])
     except Exception:
         return []
