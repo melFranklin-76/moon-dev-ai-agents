@@ -1554,3 +1554,62 @@ def get_earnings_date(symbol: str) -> dict:
 
     except Exception:
         return {"available": False}
+
+
+# ── Relative Volume (RVOL) ──────────────────────────────────────────────────
+@st.cache_data(ttl=60)
+def get_rvol(symbol: str) -> dict:
+    """
+    Compares today's cumulative volume to the 10-day average at the same
+    time of day.  RVOL >= 2.0 = stock is "in play".  Below 1.0 = dead.
+    """
+    try:
+        df_today = yf.Ticker(symbol).history(period="1d", interval="1m")
+        if df_today.empty:
+            return {"available": False}
+        today_vol = int(df_today['Volume'].sum())
+
+        df_hist = yf.Ticker(symbol).history(period="15d", interval="1d")
+        if df_hist.empty or len(df_hist) < 3:
+            return {"available": False}
+
+        bars_elapsed = len(df_today)
+        total_market_bars = 390
+        time_frac = bars_elapsed / total_market_bars if total_market_bars else 1
+
+        avg_daily_vol = float(df_hist['Volume'].iloc[-11:-1].mean()) if len(df_hist) >= 11 else float(df_hist['Volume'].mean())
+        expected_vol = avg_daily_vol * time_frac
+        if expected_vol <= 0:
+            return {"available": False}
+
+        rvol = today_vol / expected_vol
+
+        if rvol >= 3.0:
+            grade, color, emoji = "ON FIRE", "#ff4444", "🔥"
+            advice = "Extremely high activity — prime for momentum plays"
+        elif rvol >= 2.0:
+            grade, color, emoji = "IN PLAY", "#2ecc71", "⚡"
+            advice = "Stock is in play — volume supports your setups"
+        elif rvol >= 1.5:
+            grade, color, emoji = "ABOVE AVG", "#f39c12", "📈"
+            advice = "Slightly elevated volume — be selective"
+        elif rvol >= 1.0:
+            grade, color, emoji = "NORMAL", "#888888", "😐"
+            advice = "Average volume — lower conviction on breakouts"
+        else:
+            grade, color, emoji = "DEAD", "#e74c3c", "💤"
+            advice = "Below-average volume — skip this one, moves won't stick"
+
+        return {
+            "available": True,
+            "rvol": round(rvol, 2),
+            "today_vol": today_vol,
+            "avg_daily_vol": int(avg_daily_vol),
+            "bars_elapsed": bars_elapsed,
+            "grade": grade,
+            "color": color,
+            "emoji": emoji,
+            "advice": advice,
+        }
+    except Exception:
+        return {"available": False}

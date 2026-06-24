@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Small Account Options Scalper Dashboard v3.0
+Small Account Options Scalper Dashboard v3.1
 $250 Account | Options Only | Webull | Cash Account
 
 Tabs:
@@ -13,6 +13,8 @@ Tabs:
   7. Catalyst Grader   — SMB 5-check pre-market grading system
   8. Options Planner   — directional calls + XSP put credit spreads
   9. Coach             — tendencies log + pre-trade checklist
+ 10. IV Scanner        — multi-expiration IV surface fitting
+ 11. Entry Wizard      — pre-flight decision gate
 
 Run:
   streamlit run small_account_dashboard.py
@@ -20,7 +22,6 @@ Run:
 
 import streamlit as st
 import pandas as pd
-import plotly.graph_objects as go
 from datetime import datetime, date
 import os, csv
 from pathlib import Path
@@ -50,6 +51,7 @@ try:
         get_earnings_date,
         get_volume_spike,
         scan_iv_surface,
+        get_rvol,
     )
 except ImportError:
     def get_options_snapshot(symbol: str) -> dict:   return {"available": False}
@@ -68,6 +70,7 @@ except ImportError:
     def get_earnings_date(symbol: str) -> dict:      return {"available": False}
     def get_volume_spike(symbol: str) -> dict:       return {"available": False}
     def scan_iv_surface(*a, **kw) -> dict:           return {"available": False}
+    def get_rvol(symbol: str) -> dict:               return {"available": False}
 
 try:
     from streamlit_autorefresh import st_autorefresh as _st_autorefresh
@@ -78,9 +81,14 @@ except ImportError:
 
 import sheets_backend as _sheets
 
+# Tab modules
+import tab_scanner, tab_tickers, tab_trades, tab_performance
+import tab_journal, tab_market, tab_catalyst, tab_options
+import tab_coach, tab_ivscan, tab_wizard
+
 load_dotenv()
 
-# ── Page Config ───────────────────────────────────────────────────────────────
+# ── Page Config ──────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="$250 Scalper Dashboard",
     page_icon="🌙",
@@ -129,12 +137,9 @@ st.markdown("""<style>
     }
 </style>""", unsafe_allow_html=True)
 
-# ── Constants ─────────────────────────────────────────────────────────────────
+# ── Constants ────────────────────────────────────────────────────────────────
 BTC_TICKER = "BTC-USD"
 BTC_KEY_LEVELS = [60000, 65000, 70000, 72500, 75000, 80000, 85000, 90000, 95000, 100000]
-PDT_CHANGE_DATE = date(2026, 6, 4)
-
-# No hardcoded tickers — watchlist is managed dynamically in the sidebar
 
 TRADES_FILE = Path(__file__).parent / "src" / "data" / "small_account" / "trades.csv"
 TRADES_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -143,6 +148,20 @@ TRADE_FIELDS = ['date', 'ticker', 'strategy', 'side', 'entry', 'exit', 'pnl', 'r
 ALERTS_FILE  = Path(__file__).parent / "src" / "data" / "small_account" / "alerts.csv"
 ALERT_FIELDS = ['ticker', 'target', 'direction', 'created', 'triggered']
 
+ALL_STRATEGIES = [
+    "159. 1-min ORB + VWAP Hold",         "160. 1-min ORB Fail → VWAP Reject",
+    "161. 5-min OR Break + 1-min Flag",   "162. Premarket High Retest-and-Go",
+    "163. VWAP Reclaim (Long)",            "164. VWAP Rejection (Short)",
+    "165. VWAP Micro Double Bottom/Top",  "166. 9/20 EMA Pullback Long",
+    "167. 9/20 EMA Pullback Short",       "168. Higher-Low / Lower-High",
+    "169. Stop-Run Reclaim",              "170. Exhaustion Wick Reversal",
+    "171. Bollinger Squeeze Release",     "172. Whole-Dollar Break-and-Hold",
+    "173. Half-Dollar Rejection Fade",    "174. POC Reclaim/Loss",
+    "175. LVN Slide",                     "176. Index-Lead Sync (SPY/QQQ)",
+    "177. BTC-Lead Sync (MARA/CAN)",      "178. Golden-Hour Range Break",
+]
+
+# ── Persistence ──────────────────────────────────────────────────────────────
 def load_alerts() -> list:
     if not ALERTS_FILE.exists():
         return []
@@ -163,20 +182,6 @@ def save_alerts(alerts: list):
     except Exception:
         pass
 
-ALL_STRATEGIES = [
-    "159. 1-min ORB + VWAP Hold",         "160. 1-min ORB Fail → VWAP Reject",
-    "161. 5-min OR Break + 1-min Flag",   "162. Premarket High Retest-and-Go",
-    "163. VWAP Reclaim (Long)",            "164. VWAP Rejection (Short)",
-    "165. VWAP Micro Double Bottom/Top",  "166. 9/20 EMA Pullback Long",
-    "167. 9/20 EMA Pullback Short",       "168. Higher-Low / Lower-High",
-    "169. Stop-Run Reclaim",              "170. Exhaustion Wick Reversal",
-    "171. Bollinger Squeeze Release",     "172. Whole-Dollar Break-and-Hold",
-    "173. Half-Dollar Rejection Fade",    "174. POC Reclaim/Loss",
-    "175. LVN Slide",                     "176. Index-Lead Sync (SPY/QQQ)",
-    "177. BTC-Lead Sync (MARA/CAN)",      "178. Golden-Hour Range Break",
-]
-
-# ── Persistence ───────────────────────────────────────────────────────────────
 def load_trades() -> list:
     if _sheets.sheets_available():
         return _sheets.load_trades()
@@ -209,20 +214,19 @@ def save_tendency(text: str):
     else:
         _save_tend_csv(text)
 
-# ── Session State ─────────────────────────────────────────────────────────────
+# ── Session State ────────────────────────────────────────────────────────────
 _trades_from_file = load_trades()
 _total_pnl = sum(float(t.get('pnl', 0)) for t in _trades_from_file)
 _starting_balance = 250.00
 _computed_balance = round(_starting_balance + _total_pnl, 2)
 
-# Today's trades only for daily_pnl
 _today_str = date.today().isoformat()
 _daily_pnl = sum(
     float(t.get('pnl', 0)) for t in _trades_from_file
     if str(t.get('date', '')).startswith(_today_str)
 )
 
-_daily_goal    = 25.0          # target daily P&L (+10% of $250)
+_daily_goal    = 25.0
 _today_reds    = len([t for t in _trades_from_file
                       if str(t.get('date', '')).startswith(_today_str)
                       and t.get('result') == 'Red'])
@@ -237,22 +241,21 @@ defaults = {
     'daily_pnl':        round(_daily_pnl, 2),
     'daily_reds':       _today_reds,
     'watchlist':        [],
-    'selected_ticker':  '',       # set when ➕ is clicked — auto-fills other tabs
-    'ntfy_topic':       '',       # ntfy.sh push notification channel
-    'news_cache':       {},       # {symbol: [headlines]} populated on ➕ click
-    'view_mode':        'Simple', # 'Simple' | 'Pro'
-    'price_alerts':     load_alerts(),  # [{ticker, target, direction, triggered}]
+    'selected_ticker':  '',
+    'ntfy_topic':       '',
+    'news_cache':       {},
+    'view_mode':        'Simple',
+    'price_alerts':     load_alerts(),
 }
 for k, v in defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
 
-# Always recalculate from file so stale session state can't corrupt it
 st.session_state.account_balance = _computed_balance
 st.session_state.daily_pnl       = round(_daily_pnl, 2)
 st.session_state.daily_reds      = _today_reds
 
-# ── Data Layer ────────────────────────────────────────────────────────────────
+# ── Data Layer ───────────────────────────────────────────────────────────────
 @st.cache_data(ttl=60)
 def get_bars(symbol: str) -> pd.DataFrame:
     try:
@@ -301,7 +304,7 @@ def get_snapshot(symbol: str) -> dict:
     return {"symbol": symbol, "price": price, "change": change,
             "volume": vol_s, "vwap": calc_vwap(df), "bars": df}
 
-# ── Scanner Engine ────────────────────────────────────────────────────────────
+# ── Scanner Engine ───────────────────────────────────────────────────────────
 def scan_163(snap: dict) -> dict | None:
     df, vwap = snap['bars'], snap['vwap']
     if df.empty or vwap == 0 or len(df) < 3:
@@ -394,7 +397,6 @@ def run_scanner(snapshots: dict, btc_price: float) -> list:
             signals.append(r)
     return signals
 
-# ── Alpaca ────────────────────────────────────────────────────────────────────
 def get_alpaca():
     try:
         import alpaca_trade_api as tradeapi
@@ -407,14 +409,14 @@ def get_alpaca():
     except Exception:
         return None
 
-# ── Load Market Data ──────────────────────────────────────────────────────────
+# ── Load Market Data ─────────────────────────────────────────────────────────
 _watchlist = st.session_state.get('watchlist', [])
 with st.spinner("Loading market data..."):
     btc_price    = get_btc_price()
     snapshots    = {sym: get_snapshot(sym) for sym in _watchlist}
     last_updated = datetime.now().strftime('%H:%M:%S')
 
-# ── Price Alert Check (runs every page load) ───────────────────────────────────
+# ── Price Alert Check ────────────────────────────────────────────────────────
 _alerts       = st.session_state.get('price_alerts', [])
 _ntfy_topic   = st.session_state.get('ntfy_topic', '')
 _alert_fired  = False
@@ -426,7 +428,6 @@ for _al in _alerts:
     _dirn   = str(_al.get('direction', 'above'))
     if not _sym or _target <= 0:
         continue
-    # Use snapshot price if ticker is on watchlist, otherwise quick fetch
     if _sym in snapshots:
         _curr = snapshots[_sym]['price']
     else:
@@ -446,27 +447,21 @@ for _al in _alerts:
         _msg   = f"{_sym} is at ${_curr:.2f} — your {_arrow} ${_target:.2f} alert triggered!"
         st.toast(f"🔔 {_sym} {_arrow} ${_target:.2f} — ALERT!", icon="🔔")
         if _ntfy_topic:
-            send_ntfy(
-                _ntfy_topic,
-                f"🔔 Price Alert: {_sym} {_arrow} ${_target:.2f}",
-                _msg,
-                priority="urgent",
-            )
+            send_ntfy(_ntfy_topic, f"🔔 Price Alert: {_sym} {_arrow} ${_target:.2f}", _msg, priority="urgent")
 if _alert_fired:
     save_alerts(_alerts)
     st.session_state['price_alerts'] = _alerts
 
-# ── Auto-refresh (fires if enabled in sidebar) ────────────────────────────────
+# ── Auto-refresh ─────────────────────────────────────────────────────────────
 if _HAS_AUTOREFRESH and st.session_state.get('auto_refresh', True):
     _st_autorefresh(interval=60_000, key="main_autorefresh")
 
-# ── Header ────────────────────────────────────────────────────────────────────
+# ── Header ───────────────────────────────────────────────────────────────────
 c1, c2, c3 = st.columns([1, 2, 1])
 with c2:
     st.markdown("# 🌙 SMALL ACCOUNT SCALPER")
     st.markdown("### $250 Challenge | Options Only | Webull")
 
-# Account level + progress bar
 lc1, lc2, lc3 = st.columns([1, 2, 1])
 with lc2:
     balance = st.session_state.account_balance
@@ -486,7 +481,7 @@ with lc2:
 
 st.markdown("---")
 
-# ── Top Stats Bar ─────────────────────────────────────────────────────────────
+# ── Top Stats Bar ────────────────────────────────────────────────────────────
 c1, c2, c3, c4, c5, c6 = st.columns(6)
 open_pos = len([t for t in st.session_state.trades if t.get('status') == 'open'])
 
@@ -502,7 +497,7 @@ with c6: st.metric("₿ BTC",         f"${btc_price:,.0f}" if btc_price else "N/
 
 st.caption(f"Data via yfinance (15-min delayed during market hours) — refreshed {last_updated}")
 
-# ── Daily P&L Goal Bar ────────────────────────────────────────────────────────
+# ── Daily P&L Goal Bar ──────────────────────────────────────────────────────
 _dpnl      = st.session_state.daily_pnl
 _goal_pct  = min(max(_dpnl / _daily_goal, 0), 1.0)
 _reds_now  = st.session_state.daily_reds
@@ -519,7 +514,7 @@ else:
     _goal_color = "#f39c12"
     _goal_msg   = f"📈 Today: ${_dpnl:+.2f} / +${_daily_goal:.0f} goal  |  {_reds_now}/3 red trades"
 
-_goal_bar_html = f"""
+st.markdown(f"""
 <div style="background:#1e2130; border-radius:8px; padding:8px 14px; margin:4px 0 10px 0;">
   <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
     <span style="color:{_goal_color}; font-weight:bold;">{_goal_msg}</span>
@@ -528,11 +523,54 @@ _goal_bar_html = f"""
   <div style="background:#0e1117; border-radius:4px; height:8px; overflow:hidden;">
     <div style="background:{_goal_color}; width:{_goal_pct*100:.0f}%; height:8px; border-radius:4px;"></div>
   </div>
-</div>"""
-st.markdown(_goal_bar_html, unsafe_allow_html=True)
+</div>""", unsafe_allow_html=True)
+
+# ── Trading Window Countdown ─────────────────────────────────────────────────
+from zoneinfo import ZoneInfo
+_now_ct = datetime.now(ZoneInfo("America/Chicago"))
+_open_h, _open_m = 8, 30   # 8:30 AM CT = pre-market prep
+_trade_h, _trade_m = 9, 30  # 9:30 AM CT = entries
+_close_h, _close_m = 10, 0  # 10:00 AM CT = window closes
+
+_now_mins = _now_ct.hour * 60 + _now_ct.minute
+_open_mins  = _open_h * 60 + _open_m
+_trade_mins = _trade_h * 60 + _trade_m
+_close_mins = _close_h * 60 + _close_m
+
+if _now_mins < _open_mins:
+    _mins_left = _trade_mins - _now_mins
+    _tw_color = "#3498db"
+    _tw_msg = f"⏳ Trading window opens in {_mins_left} min — prep your watchlist"
+    _tw_pct = 0.0
+elif _now_mins < _trade_mins:
+    _mins_left = _trade_mins - _now_mins
+    _tw_color = "#f39c12"
+    _tw_msg = f"🔍 Pre-market scan — entries open in {_mins_left} min"
+    _tw_pct = (_now_mins - _open_mins) / (_trade_mins - _open_mins)
+elif _now_mins < _close_mins:
+    _mins_left = _close_mins - _now_mins
+    _tw_color = "#2ecc71"
+    _tw_msg = f"🟢 WINDOW OPEN — {_mins_left} min left to enter trades"
+    _tw_pct = (_now_mins - _trade_mins) / (_close_mins - _trade_mins)
+else:
+    _mins_left = 0
+    _tw_color = "#e74c3c"
+    _tw_msg = "🔴 Window closed — no new entries. Manage open positions only."
+    _tw_pct = 1.0
+
+st.markdown(f"""
+<div style="background:#1e2130; border-radius:8px; padding:8px 14px; margin:4px 0 10px 0;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+    <span style="color:{_tw_color}; font-weight:bold; font-size:14px;">{_tw_msg}</span>
+    <span style="color:#8b92a8; font-size:12px;">{_now_ct.strftime('%I:%M %p CT')}</span>
+  </div>
+  <div style="background:#0e1117; border-radius:4px; height:6px; overflow:hidden;">
+    <div style="background:{_tw_color}; width:{_tw_pct*100:.0f}%; height:6px; border-radius:4px;"></div>
+  </div>
+</div>""", unsafe_allow_html=True)
 st.markdown("---")
 
-# ── Tabs ──────────────────────────────────────────────────────────────────────
+# ── Tabs ─────────────────────────────────────────────────────────────────────
 tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs([
     "🎯 Live Scanner",
     "📊 My Tickers",
@@ -547,2192 +585,92 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs([
     "🚦 Entry Wizard",
 ])
 
-# ─────────────────────────────────────────────────────────────────────────────
-# TAB 1  LIVE SCANNER
-# ─────────────────────────────────────────────────────────────────────────────
-with tab1:
-    st.markdown("## 🟢 LIVE SETUP SCANNER")
-
-    # ── Universe Scanner ──────────────────────────────────────────────────────
-    st.markdown("### 🔭 Find Today's Optionable Movers")
-    st.caption("Scans Yahoo Finance day gainers + most actives. Filters by your criteria. Flags which ones have options.")
-
-    with st.expander("⚙️ Scanner Filters", expanded=False):
-        fc1, fc2, fc3, fc4 = st.columns(4)
-        f_min_price  = fc1.number_input("Min Price ($)",   value=2.0,   step=0.5,  min_value=0.5)
-        f_max_price  = fc2.number_input("Max Price ($)",   value=100.0, step=5.0,  min_value=1.0)
-        f_min_change = fc3.number_input("Min Change (%)",  value=3.0,   step=0.5,  min_value=0.5)
-        f_min_relvol = fc4.number_input(
-            "Min Rel Vol (x)", value=1.0, step=0.1, min_value=0.1,
-            help="Volume vs 3-month average. Stays under 1.0x most of the morning — "
-                 "set to 0.5x in pre-market, 1.0x mid-day, 2.0x+ for explosive movers only.",
-        )
-
-    scan_col, info_col = st.columns([1, 3])
-    run_scan = scan_col.button("🚀 Scan Universe Now", type="primary", use_container_width=True)
-    info_col.caption("Takes ~20–30 seconds. Results cached 5 min. Checks ALL Yahoo Finance movers — nothing slips through.")
-
-    if run_scan:
-        with st.spinner("Scanning universe... checking options availability..."):
-            universe = scan_momentum_universe(
-                min_price=f_min_price,
-                max_price=f_max_price,
-                min_change=f_min_change,
-                min_rel_vol=f_min_relvol,
-            )
-        st.session_state['_last_universe'] = universe
-
-    raw_universe = st.session_state.get('_last_universe', [])
-    # Split sentinel diagnostic row from real results
-    _diag    = next((r['_diag'] for r in raw_universe if not r.get('symbol')), None)
-    universe = [r for r in raw_universe if r.get('symbol')]
-
-    if universe:
-        st.markdown(f"**{len(universe)} stocks meet criteria** — click ➕ to add to watchlist · always verify options chain on Webull before trading")
-        st.caption("⚠️ Confirm open interest > 200 and bid/ask spread < 10% on Webull before entering any trade.")
-
-        for r in universe:
-            rc1, rc2, rc3, rc4, rc5, rc6, rc7 = st.columns([1, 2, 1, 1, 1, 1, 1])
-            rc1.markdown(f"**{r['symbol']}**")
-            rc2.markdown(f"<small>{r['name'][:28]}</small>", unsafe_allow_html=True)
-            rc3.markdown(f"**${r['price']:.2f}**")
-            rc4.markdown(f"<span style='color:#2ecc71'>+{r['change']:.1f}%</span>", unsafe_allow_html=True)
-            rc5.markdown(f"{r['rel_vol']:.1f}x vol")
-            # Squeeze score inline
-            sq_r = get_squeeze_score(r['symbol'])
-            if sq_r.get("available"):
-                sq_color = sq_r['color']
-                rc6.markdown(
-                    f"<span style='color:{sq_color}; font-weight:bold;'>"
-                    f"{sq_r['emoji']}{sq_r['score']}</span>",
-                    unsafe_allow_html=True
-                )
-            else:
-                rc6.markdown("—")
-            if rc7.button("➕", key=f"add_uni_{r['symbol']}"):
-                if r['symbol'] not in st.session_state.watchlist:
-                    st.session_state.watchlist.append(r['symbol'])
-                st.session_state.selected_ticker = r['symbol']
-                # Auto-fetch news for the selected ticker
-                st.session_state.news_cache[r['symbol']] = get_news(r['symbol'])
-                st.cache_data.clear()
-                st.rerun()
-    elif _diag:
-        # Scanner ran but nothing passed — show exactly what knocked everything out
-        rej = _diag['rejected']
-        bottleneck = max(rej, key=rej.get)
-        labels = {
-            "price":   f"price outside ${f_min_price:g}–${f_max_price:g}",
-            "change":  f"% change below {f_min_change:g}%",
-            "volume":  "volume below 500K",
-            "rel_vol": f"rel-volume below {f_min_relvol:g}x",
-        }
-        st.warning(
-            f"**0 of {_diag['raw_count']} movers passed.** "
-            f"Biggest filter: **{labels[bottleneck]}** ({rej[bottleneck]} rejected). "
-            f"Full breakdown: price {rej['price']}, change {rej['change']}, "
-            f"volume {rej['volume']}, rel-vol {rej['rel_vol']}."
-        )
-        if bottleneck == "rel_vol":
-            st.caption(
-                "💡 Rel-volume stays under 1.0x most of the morning until volume builds. "
-                "Try lowering **Min Rel Vol** to 0.5x pre-market, or 0.7x in the first hour."
-            )
-        elif bottleneck == "change":
-            st.caption("💡 The whole tape may be flat today — try lowering **Min Change** to 2.0%.")
-    elif not run_scan:
-        st.info("Hit **Scan Universe Now** to find today's optionable movers. Do this each morning after 8:30 AM CT.")
-
-    # ── News for selected ticker ──────────────────────────────────────────────
-    _sel        = st.session_state.get('selected_ticker', '')
-    _news_cache = st.session_state.get('news_cache', {})
-    if _sel:
-        _headlines = _news_cache.get(_sel, [])
-        if _headlines:
-            st.markdown(f"#### 📰 Latest News: **{_sel}**")
-            for n in _headlines:
-                st.markdown(f"- [{n['title']}]({n['link']}) — *{n['publisher']}* `{n['time']}`")
-        else:
-            if st.button(f"📰 Load News for {_sel}", key="fetch_news_btn"):
-                st.session_state.news_cache[_sel] = get_news(_sel)
-                st.rerun()
-
-    # ── Pre-Market Gap Scanner ────────────────────────────────────────────────
-    st.markdown("---")
-    with st.expander("🌅 Pre-Market Gap Scanner (open before 8:30 AM CT)", expanded=False):
-        st.caption("Finds stocks with significant overnight gaps — prime candidates for ORB setups at open.")
-        gc1, gc2, gc3 = st.columns(3)
-        g_min_gap   = gc1.number_input("Min Gap (%)",   value=3.0,  step=0.5, min_value=1.0, key="gap_pct")
-        g_min_price = gc2.number_input("Min Price ($)", value=2.0,  step=0.5, min_value=0.5, key="gap_minp")
-        g_max_price = gc3.number_input("Max Price ($)", value=100.0, step=5.0, min_value=1.0, key="gap_maxp")
-        if st.button("🔍 Scan Pre-Market Gaps", key="gap_scan_btn"):
-            with st.spinner("Scanning for gap stocks..."):
-                gaps = scan_premarket_gaps(g_min_gap, g_min_price, g_max_price)
-            st.session_state['_last_gaps'] = gaps
-
-        gaps = st.session_state.get('_last_gaps', [])
-        if gaps:
-            st.markdown(f"**{len(gaps)} gap stocks found** — click ➕ to add to watchlist")
-            for g in gaps:
-                gdir   = "🟢 Gap UP" if g['gap_pct'] > 0 else "🔴 Gap DOWN"
-                color  = "#2ecc71" if g['gap_pct'] > 0 else "#e74c3c"
-                ga1, ga2, ga3, ga4, ga5, ga6 = st.columns([1, 2, 1, 1, 1, 1])
-                ga1.markdown(f"**{g['symbol']}**")
-                ga2.markdown(f"<small>{g['name'][:28]}</small>", unsafe_allow_html=True)
-                ga3.markdown(f"${g['gap_price']:.2f}")
-                ga4.markdown(f"prev ${g['prev_close']:.2f}")
-                ga5.markdown(f"<span style='color:{color}'>{g['gap_pct']:+.1f}%</span>", unsafe_allow_html=True)
-                if ga6.button("➕", key=f"add_gap_{g['symbol']}"):
-                    if g['symbol'] not in st.session_state.watchlist:
-                        st.session_state.watchlist.append(g['symbol'])
-                    st.session_state.selected_ticker = g['symbol']
-                    st.session_state.news_cache[g['symbol']] = get_news(g['symbol'])
-                    st.cache_data.clear()
-                    st.rerun()
-        else:
-            st.info("Click **Scan Pre-Market Gaps** to find overnight gap stocks.")
-
-    st.markdown("### 🎯 Setup Signals (Your Watchlist)")
-    st.caption("Signals fire on #163 VWAP Reclaim · #172 Whole-Dollar · #177 BTC Sync across tickers you've added above.")
-
-    col_left, col_right = st.columns(2)
-
-    with col_left:
-        st.markdown("#### Active Setups")
-        signals = run_scanner(snapshots, btc_price)
-        # Fire push notifications for new signals
-        _ntfy_topic = st.session_state.get('ntfy_topic', '')
-        if signals and _ntfy_topic:
-            for sig in signals:
-                send_ntfy(
-                    _ntfy_topic,
-                    f"🔥 {sig['ticker']} — {sig['strategy']}",
-                    f"{sig['signal']} | {sig['trigger']} | Entry: {sig['entry_note']}",
-                )
-        if signals:
-            for sig in signals:
-                box = "green-box" if sig['signal'] == "CALL" else "red-box"
-                # RS confirmation on signal card
-                rs_sig = get_rs_vs_spy(sig['ticker'])
-                if rs_sig.get("available"):
-                    rs_ratio_txt = (
-                        f"{rs_sig['rs']:.1f}x" if abs(rs_sig['rs']) < 90
-                        else ("∞" if rs_sig['rs'] > 0 else "−∞")
-                    )
-                    rs_line = (
-                        f"<p><strong>RS vs SPY:</strong> "
-                        f"<span style='color:{rs_sig['color']};'>"
-                        f"{rs_sig['label']} {rs_sig['stars']} ({rs_ratio_txt})</span> "
-                        f"— {rs_sig['desc']}</p>"
-                    )
-                else:
-                    rs_line = ""
-                st.markdown(f"""
-                <div class="{box}">
-                <h3>{sig['ticker']} — {sig['strategy']} {sig['strength']}</h3>
-                <p><strong>Signal:</strong> {sig['signal']}</p>
-                <p><strong>Trigger:</strong> {sig['trigger']}</p>
-                <p><strong>Entry:</strong> {sig['entry_note']}</p>
-                {rs_line}
-                <p><strong>Stop:</strong> {sig['stop']}</p>
-                <p><strong>Targets:</strong> {sig['targets']}</p>
-                </div>
-                """, unsafe_allow_html=True)
-        elif not _watchlist:
-            st.markdown("""
-            <div class="yellow-box">
-            <h3>📋 Watchlist Empty</h3>
-            <p>Scan the universe above → click ➕ on any optionable stock → signals will appear here.</p>
-            </div>
-            """, unsafe_allow_html=True)
-        else:
-            st.markdown("""
-            <div class="yellow-box">
-            <h3>⏳ No Active Setups Right Now</h3>
-            <p>Watching your tickers — no confirmed signals yet.<br>
-            <strong>Patience is a position.</strong></p>
-            </div>
-            """, unsafe_allow_html=True)
-
-    with col_right:
-        # Hot money alert — top sector right now
-        _flow = get_intraday_sector_flow()
-        if _flow:
-            _hot  = _flow[0]
-            _cold = _flow[-1]
-            st.markdown(
-                f"<div style='background:#1e2130; border-radius:8px; "
-                f"padding:8px 12px; margin-bottom:8px;'>"
-                f"<span style='color:{_hot['flow_color']}; font-weight:bold;'>"
-                f"🔥 HOT MONEY → {_hot['name']} ({_hot['symbol']}) "
-                f"{_hot['arrow']} RS {_hot['rs_30m']:+.2f}% · "
-                f"vol {_hot['vol_ratio']:.1f}x</span><br>"
-                f"<span style='color:{_cold['flow_color']}; font-size:12px;'>"
-                f"🧊 COLD: {_cold['name']} ({_cold['symbol']}) "
-                f"RS {_cold['rs_30m']:+.2f}%</span>"
-                f"</div>",
-                unsafe_allow_html=True
-            )
-
-        st.markdown("#### Pre-Market Checklist")
-        checklist = [
-            "Mark PM High/Low",
-            "Mark Prior Day High/Low/Close",
-            "Check BTC price (if watching BTC-correlated stocks)",
-            "Check earnings calendar",
-            "Define Opening Range (wait 5 min after open)",
-            "Plot VWAP",
-            "Check Level 2 liquidity",
-            "ONE setup only today ⚠️",
-        ]
-        for i, item in enumerate(checklist):
-            st.checkbox(item, key=f"chk_{i}")
-
-        st.markdown("---")
-        st.markdown("### ⚠️ Risk Management")
-        remaining = 50 + st.session_state.daily_pnl
-        rm_box = "green-box" if remaining > 25 else "red-box"
-        st.markdown(f"""
-        <div class="{rm_box}">
-        <p><strong>Max Loss Today:</strong> $50 (20% of account)</p>
-        <p><strong>Today's P/L:</strong> ${st.session_state.daily_pnl:.2f}</p>
-        <p><strong>Remaining Risk:</strong> ${remaining:.2f} {'🟢' if remaining > 25 else '🔴 NEAR LIMIT'}</p>
-        <hr>
-        <p><strong>Max Position Size:</strong> $80 (1 contract)</p>
-        <p><strong>STOP TRADING at -$50!</strong> ⛔</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-# ─────────────────────────────────────────────────────────────────────────────
-# TAB 2  MY TICKERS
-# ─────────────────────────────────────────────────────────────────────────────
-with tab2:
-    st.markdown("## 📊 TODAY'S WATCHLIST")
-    st.caption(f"Live prices | Updated {last_updated} | Add tickers via sidebar")
-
-    if not _watchlist:
-        st.markdown("""
-        <div class="yellow-box">
-        <h3>📋 Your watchlist is empty</h3>
-        <p><strong>How to use this tab:</strong></p>
-        <ol>
-          <li>Run your Finviz / TradingView screener (3%+ gain, 2x vol, catalyst)</li>
-          <li>Add qualifying tickers in the <strong>sidebar → Today's Watchlist</strong></li>
-          <li>Live prices, VWAP position, and setup signals will appear here</li>
-        </ol>
-        <p>Clear the watchlist each morning and start fresh with that day's movers.</p>
-        </div>
-        """, unsafe_allow_html=True)
-    else:
-        _vm = st.session_state.get('view_mode', 'Simple')
-        cols = st.columns(min(len(_watchlist), 3))
-        for i, sym in enumerate(_watchlist):
-            snap  = snapshots.get(sym, {"symbol": sym, "price": 0, "change": 0, "volume": "N/A", "vwap": 0, "bars": pd.DataFrame()})
-            color = "#2ecc71" if snap['change'] > 0 else "#e74c3c"
-            icon  = "🟢" if snap['change'] > 0 else "🔴"
-            vwap  = snap['vwap']
-            price = snap['price']
-            if vwap > 0:
-                vwap_label = f"↑ ABOVE VWAP (+${price-vwap:.2f})" if price > vwap else f"↓ BELOW VWAP (-${vwap-price:.2f})"
-            else:
-                vwap_label = "VWAP N/A"
-
-            with cols[i % 3]:
-                # ── SIMPLE MODE ───────────────────────────────────────────────
-                if _vm == 'Simple':
-                    ss   = get_signal_strength(sym)
-                    earn = get_earnings_date(sym)
-                    sig_bg = f"{ss['color']}22"
-                    d = ss['detail']
-                    layers_html = "".join([
-                        f"<span style='color:{d['rs']['color']};'>RS {d['rs']['note']}</span> &nbsp;·&nbsp; ",
-                        f"<span style='color:{d['iv']['color']};'>IV {d['iv']['note']}</span> &nbsp;·&nbsp; ",
-                        f"<span style='color:{d['mp']['color']};'>{d['mp']['note']}</span><br>",
-                        f"<span style='color:{d['sq']['color']};'>Squeeze {d['sq']['note']}</span> &nbsp;·&nbsp; ",
-                        f"<span style='color:#8b92a8;'>Liq {d['liq']['note']}</span>",
-                    ])
-                    vwap_color = "#2ecc71" if price > vwap and vwap > 0 else "#e74c3c" if vwap > 0 else "#8b92a8"
-
-                    # Earnings badge — always show, style by urgency
-                    if earn.get("available"):
-                        earn_bar = (
-                            f"<div style='background:{earn['color']}22; "
-                            f"border:1px solid {earn['color']}; border-radius:8px; "
-                            f"padding:7px 10px; margin-top:8px; font-size:12px; line-height:1.4;'>"
-                            f"<strong style='color:{earn['color']};'>"
-                            f"{earn['emoji']} EARNINGS {earn['grade']}</strong> "
-                            f"&nbsp;·&nbsp; {earn['date_str']} &nbsp;·&nbsp; {earn['days']}d away<br>"
-                            f"<span style='color:#8b92a8;'>{earn['advice']}</span>"
-                            f"</div>"
-                        )
-                    else:
-                        earn_bar = ""
-
-                    st.markdown(f"""
-                    <div class="simple-card">
-                      <div class="simple-ticker">{sym}</div>
-                      <div class="simple-price" style="color:{color};">${price:.2f}</div>
-                      <div class="simple-change" style="color:{color};">{icon} {snap['change']:+.1f}% &nbsp;·&nbsp;
-                        <span style="color:{vwap_color};">{vwap_label}</span>
-                      </div>
-                      <div class="simple-signal" style="background:{sig_bg}; color:{ss['color']}; border:2px solid {ss['color']};">
-                        {ss['emoji']} {ss['score']}/10 — {ss['grade']}
-                      </div>
-                      <div class="simple-stars" style="color:{ss['color']};">{ss['stars']}</div>
-                      <div class="simple-advice">{ss['advice']}</div>
-                      <div class="simple-layers">{layers_html}</div>
-                      {earn_bar}
-                    </div>
-                    """, unsafe_allow_html=True)
-                    continue   # skip Pro block below
-
-                # ── PRO MODE ──────────────────────────────────────────────────
-                # Options liquidity check
-                opt = get_options_snapshot(sym)
-                if opt.get("available"):
-                    liq_rows = opt["calls"][:2]
-                    liq_lines = ""
-                    for row in liq_rows:
-                        badge = "✅" if row["liquid"] else "❌"
-                        liq_lines += (
-                            f"<p style='margin:2px 0;'>{badge} ${row['strike']:.0f} call "
-                            f"OI:{row['oi']} spread:{row['spread_pct']:.0f}%</p>"
-                        )
-                    liq_html = f"<p><strong>Options ({opt['expiry']}):</strong></p>{liq_lines}"
-                else:
-                    liq_html = "<p style='color:#8b92a8;'><small>Options data N/A</small></p>"
-
-                # IV Rank badge
-                iv = get_iv_rank(sym)
-                if iv.get("available"):
-                    iv_html = (
-                        f"<p style='margin:4px 0;'>"
-                        f"<span style='background:{iv['color']}22; color:{iv['color']}; "
-                        f"border:1px solid {iv['color']}; border-radius:5px; "
-                        f"padding:2px 8px; font-weight:bold; font-size:13px;'>"
-                        f"{iv['emoji']} IV {iv['grade']} &nbsp;|&nbsp; "
-                        f"IV:{iv['current_iv']}% &nbsp; HV20:{iv['hv20']}% &nbsp; "
-                        f"Rank:{iv['iv_rank']:.0f}</span></p>"
-                        f"<p style='color:#8b92a8; font-size:11px; margin:2px 0;'>"
-                        f"{iv['advice']}</p>"
-                    )
-                else:
-                    iv_html = "<p style='color:#8b92a8;'><small>IV data loading…</small></p>"
-
-                # Relative Strength vs SPY badge
-                rs = get_rs_vs_spy(sym)
-                if rs.get("available"):
-                    rs_ratio_txt = (
-                        f"{rs['rs']:.1f}x" if abs(rs['rs']) < 90
-                        else ("∞" if rs['rs'] > 0 else "−∞")
-                    )
-                    rs_html = (
-                        f"<p style='margin:4px 0;'>"
-                        f"<span style='background:{rs['color']}22; color:{rs['color']}; "
-                        f"border:1px solid {rs['color']}; border-radius:5px; "
-                        f"padding:2px 8px; font-weight:bold; font-size:13px;'>"
-                        f"RS {rs['label']} &nbsp;|&nbsp; {rs['stars']} &nbsp;|&nbsp; "
-                        f"{rs_ratio_txt} vs SPY</span></p>"
-                        f"<p style='color:#8b92a8; font-size:11px; margin:2px 0;'>"
-                        f"{sym} {rs['stock_chg']:+.1f}% &nbsp;·&nbsp; "
-                        f"SPY {rs['spy_chg']:+.1f}% &nbsp;·&nbsp; "
-                        f"{rs['desc']}</p>"
-                    )
-                else:
-                    rs_html = "<p style='color:#8b92a8;'><small>RS data loading…</small></p>"
-
-                # Squeeze Score
-                sq = get_squeeze_score(sym)
-                if sq.get("available"):
-                    sq_bar = min(sq['score'], 100)
-                    sq_html = (
-                        f"<p style='margin:4px 0;'>"
-                        f"<span style='background:{sq['color']}22; color:{sq['color']}; "
-                        f"border:1px solid {sq['color']}; border-radius:5px; "
-                        f"padding:2px 8px; font-weight:bold; font-size:13px;'>"
-                        f"{sq['emoji']} SQUEEZE {sq['score']}/100 — {sq['grade']}</span></p>"
-                        f"<p style='color:#8b92a8; font-size:11px; margin:2px 0;'>"
-                        f"Float: {sq['float_label']} &nbsp;·&nbsp; "
-                        f"Short: {sq['si_label']} &nbsp;·&nbsp; "
-                        f"DTC: {sq['dtc_label']}</p>"
-                        f"<p style='color:#8b92a8; font-size:11px; margin:2px 0;'>{sq['advice']}</p>"
-                    )
-                else:
-                    sq_html = "<p style='color:#8b92a8;'><small>Squeeze data loading…</small></p>"
-
-                # Max Pain (compact badge)
-                mp = get_max_pain(sym)
-                if mp.get("available"):
-                    mp_html = (
-                        f"<p style='margin:4px 0; font-size:12px;'>"
-                        f"<span style='color:{mp['pull_color']}; font-weight:bold;'>"
-                        f"📌 Max Pain ${mp['max_pain_strike']:.0f}</span> &nbsp;"
-                        f"<span style='color:{mp['pin_color']};'>"
-                        f"({mp['diff_pct']:+.1f}% from price)</span> &nbsp;"
-                        f"<span style='color:{mp['pull_color']}; font-size:11px;'>"
-                        f"{mp['pull_label']} · {mp['days_to_exp']}d to expiry"
-                        f"</span></p>"
-                    )
-                else:
-                    mp_html = ""
-
-                # Best Buy Strike — IV surface fit, find cheapest call to buy
-                bbs = get_best_buy_strike(sym)
-                if bbs.get("available"):
-                    spread     = round(bbs['ask'] - bbs['bid'], 2)
-                    spread_pct = round(spread / ((bbs['bid'] + bbs['ask']) / 2) * 100, 0) if (bbs['bid'] + bbs['ask']) > 0 else 0
-                    bbs_html = (
-                        f"<p style='margin:6px 0 2px 0;'>"
-                        f"<span style='background:{bbs['color']}22; color:{bbs['color']}; "
-                        f"border:1px solid {bbs['color']}; border-radius:5px; "
-                        f"padding:2px 8px; font-weight:bold; font-size:13px;'>"
-                        f"🎯 BEST BUY CALL: ${bbs['best_strike']:.2f} &nbsp;·&nbsp; "
-                        f"{bbs['emoji']} {bbs['grade']}</span></p>"
-                        f"<p style='color:#8b92a8; font-size:11px; margin:2px 0;'>"
-                        f"IV: <strong style='color:#fff;'>{bbs['iv_pct']}%</strong> &nbsp;·&nbsp; "
-                        f"Surface: {bbs['fitted_iv_pct']}% &nbsp;·&nbsp; "
-                        f"Discount: <strong style='color:{bbs['color']};'>{bbs['residual_pp']:+.1f} PP</strong> &nbsp;·&nbsp; "
-                        f"Δ{bbs['delta']:.2f} &nbsp;·&nbsp; "
-                        f"OI: {bbs['oi']:,} &nbsp;·&nbsp; "
-                        f"${bbs['bid']:.2f}×${bbs['ask']:.2f} "
-                        f"<span style='color:#f39c12;'>(spread {spread_pct:.0f}%)</span>"
-                        f"</p>"
-                        f"<p style='color:#8b92a8; font-size:11px; margin:2px 0;'>"
-                        f"{bbs['advice']}</p>"
-                    )
-                else:
-                    bbs_html = ""
-
-                # Earnings risk badge — always shown in Pro Mode
-                earn = get_earnings_date(sym)
-                if earn.get("available"):
-                    earn_html = (
-                        f"<p style='margin:6px 0 2px 0;'>"
-                        f"<span style='background:{earn['color']}22; color:{earn['color']}; "
-                        f"border:1px solid {earn['color']}; border-radius:5px; "
-                        f"padding:2px 8px; font-weight:bold; font-size:13px;'>"
-                        f"{earn['emoji']} EARNINGS {earn['grade']} &nbsp;·&nbsp; "
-                        f"{earn['date_str']} &nbsp;·&nbsp; {earn['days']}d away"
-                        f"</span></p>"
-                        f"<p style='color:#8b92a8; font-size:11px; margin:2px 0;'>"
-                        f"{earn['advice']}</p>"
-                    )
-                else:
-                    earn_html = ""
-
-                # Volume Spike / Capitulation badge
-                vs = get_volume_spike(sym)
-                if vs.get("available"):
-                    vs_html = (
-                        f"<p style='margin:6px 0 2px 0;'>"
-                        f"<span style='background:{vs['color']}22; color:{vs['color']}; "
-                        f"border:1px solid {vs['color']}; border-radius:5px; "
-                        f"padding:2px 8px; font-weight:bold; font-size:13px;'>"
-                        f"{vs['emoji']} {vs['grade']} &nbsp; {vs['spike_ratio']:.1f}× vol &nbsp;·&nbsp; "
-                        f"{vs['direction']}"
-                        f"</span></p>"
-                        f"<p style='color:#8b92a8; font-size:11px; margin:2px 0;'>"
-                        f"{vs['advice']} &nbsp;·&nbsp; "
-                        f"cur: {vs['cur_vol']:,} &nbsp; avg: {vs['avg_vol']:,}"
-                        f"</p>"
-                    )
-                else:
-                    vs_html = ""
-
-                st.markdown(f"""
-                <div class="trade-card">
-                <h2>${sym}</h2>
-                <p class="big-text" style="color:{color};">${price:.2f}</p>
-                <p>{icon} {snap['change']:+.1f}% | Vol: {snap['volume']}</p>
-                <p><strong>VWAP:</strong> ${vwap:.2f} &nbsp;<em>{vwap_label}</em></p>
-                <hr>
-                {rs_html}
-                {iv_html}
-                {sq_html}
-                {mp_html}
-                {bbs_html}
-                {earn_html}
-                {vs_html}
-                <hr>
-                {liq_html}
-                <p><strong>Strategies:</strong> #163 VWAP · #172 Whole-$ · #177 BTC-sync</p>
-                </div>
-                """, unsafe_allow_html=True)
-
-# ─────────────────────────────────────────────────────────────────────────────
-# TAB 3  TRADE CARDS
-# ─────────────────────────────────────────────────────────────────────────────
-with tab3:
-    st.markdown("## 🎴 YOUR 20 BEST-OF-THE-BEST")
-    st.markdown("*Strategies 159–178 | Refined from 178 total*")
-
-    strategy_groups = {
-        "🚀 Momentum + Confirmation (159-162)":   ALL_STRATEGIES[0:4],
-        "💧 VWAP Edge (163-165)":                 ALL_STRATEGIES[4:7],
-        "📈 Pullback Continuations (166-168)":    ALL_STRATEGIES[7:10],
-        "🔄 Reversal / Mean-Reversion (169-171)": ALL_STRATEGIES[10:13],
-        "💰 Price Levels & Auction (172-175)":    ALL_STRATEGIES[13:17],
-        "🔗 Correlation (176-177)":               ALL_STRATEGIES[17:19],
-        "⏰ Time-of-Day (178)":                   ALL_STRATEGIES[19:],
-    }
-    for cat, strats in strategy_groups.items():
-        with st.expander(cat, expanded=False):
-            for s in strats:
-                st.markdown(f"- {s}")
-
-# ─────────────────────────────────────────────────────────────────────────────
-# TAB 4  PERFORMANCE
-# ─────────────────────────────────────────────────────────────────────────────
-with tab4:
-    st.markdown("## 📈 10-DAY CHALLENGE TRACKER")
-
-    c_left, c_right = st.columns([2, 1])
-
-    with c_left:
-        icons   = {1: "✅", -1: "❌", 0: "⬜"}
-        day_row = " ".join(icons[d] for d in st.session_state.challenge_days)
-        streak  = st.session_state.current_streak
-        st.markdown(f"""
-        <div class="green-box">
-        <h2>🏆 10-Day Prove-It Challenge</h2>
-        <p style="font-size:32px; text-align:center;">{day_row}</p>
-        <p><strong>Streak:</strong> {streak} days 🔥 &nbsp;&nbsp;
-           <strong>Status:</strong> {'ON TRACK! 🎯' if streak >= 3 else 'KEEP GOING!'}</p>
-        <p style="color:#f39c12;">⚠️ One red day resets counter to 0!</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-        st.markdown("### Equity Curve")
-        trades = st.session_state.trades
-        if trades:
-            df_eq = pd.DataFrame(trades)
-            df_eq['pnl']  = pd.to_numeric(df_eq['pnl'], errors='coerce').fillna(0)
-            df_eq['date'] = pd.to_datetime(df_eq['date'], errors='coerce')
-            df_eq = df_eq.sort_values('date')
-            df_eq['equity'] = 250 + df_eq['pnl'].cumsum()
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(
-                x=df_eq['date'], y=df_eq['equity'],
-                mode='lines+markers', name='Account Value',
-                line=dict(color='#2ecc71', width=3)
-            ))
-            fig.update_layout(template='plotly_dark', height=300,
-                              margin=dict(l=20, r=20, t=20, b=20),
-                              xaxis_title="Date", yaxis_title="Account Value ($)")
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("Log trades to see your equity curve.")
-
-    with c_right:
-        today_str = date.today().isoformat()
-        today_tr  = [t for t in st.session_state.trades if str(t.get('date',''))[:10] == today_str]
-        wins_t    = len([t for t in today_tr if t.get('result') == 'Green'])
-
-        st.markdown("### Today's Stats")
-        st.metric("Trades",   str(len(today_tr)))
-        st.metric("Win Rate", f"{wins_t/len(today_tr)*100:.0f}%" if today_tr else "N/A")
-        if today_tr:
-            pnls = [float(t.get('pnl', 0)) for t in today_tr]
-            st.metric("Best",  f"+${max(pnls):.2f}")
-            st.metric("Worst", f"${min(pnls):.2f}")
-
-        st.markdown("### All-Time")
-        all_tr   = st.session_state.trades
-        all_wins = len([t for t in all_tr if t.get('result') == 'Green'])
-        st.metric("Total Trades", str(len(all_tr)))
-        st.metric("Win Rate", f"{all_wins/len(all_tr)*100:.0f}%" if all_tr else "N/A")
-        if all_tr:
-            all_pnl = sum(float(t.get('pnl', 0)) for t in all_tr)
-            st.metric("Total P/L", f"${all_pnl:.2f}")
-
-    # ── Performance Analytics ─────────────────────────────────────────────────
-    st.markdown("---")
-    st.markdown("### 📊 Strategy & Time Analytics")
-    all_tr = st.session_state.trades
-    if len(all_tr) >= 3:
-        df_a = pd.DataFrame(all_tr)
-        df_a['pnl']    = pd.to_numeric(df_a['pnl'], errors='coerce').fillna(0)
-        df_a['date']   = pd.to_datetime(df_a['date'], errors='coerce')
-        df_a['win']    = df_a['result'] == 'Green'
-        df_a['dow']    = df_a['date'].dt.strftime('%a')   # Mon Tue etc
-        df_a['hour']   = df_a['date'].dt.hour
-
-        ana_col1, ana_col2, ana_col3 = st.columns(3)
-
-        # Win rate by strategy (top 8)
-        with ana_col1:
-            st.markdown("**Win Rate by Strategy**")
-            strat_g = (df_a.groupby('strategy')
-                       .agg(trades=('win','count'), wins=('win','sum'), pnl=('pnl','sum'))
-                       .reset_index())
-            strat_g['win_rate'] = strat_g['wins'] / strat_g['trades'] * 100
-            strat_g = strat_g.sort_values('win_rate', ascending=False).head(8)
-            strat_g['label'] = strat_g['strategy'].str[:20]
-            fig_s = go.Figure(go.Bar(
-                x=strat_g['win_rate'], y=strat_g['label'],
-                orientation='h',
-                marker_color=['#2ecc71' if w >= 50 else '#e74c3c' for w in strat_g['win_rate']],
-                text=[f"{w:.0f}% ({t})" for w, t in zip(strat_g['win_rate'], strat_g['trades'])],
-                textposition='outside',
-            ))
-            fig_s.update_layout(template='plotly_dark', height=280,
-                                margin=dict(l=10,r=30,t=10,b=10),
-                                xaxis=dict(range=[0, 110], title="Win %"))
-            st.plotly_chart(fig_s, use_container_width=True)
-
-        # Win rate by day of week
-        with ana_col2:
-            st.markdown("**Win Rate by Day**")
-            dow_order = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
-            dow_g = (df_a.groupby('dow')
-                     .agg(trades=('win','count'), wins=('win','sum'))
-                     .reindex(dow_order).reset_index())
-            dow_g['win_rate'] = dow_g['wins'] / dow_g['trades'] * 100
-            fig_d = go.Figure(go.Bar(
-                x=dow_g['dow'], y=dow_g['win_rate'],
-                marker_color=['#2ecc71' if (w >= 50 if not pd.isna(w) else False) else '#e74c3c'
-                              for w in dow_g['win_rate']],
-                text=[f"{w:.0f}%" if not pd.isna(w) else "" for w in dow_g['win_rate']],
-                textposition='outside',
-            ))
-            fig_d.update_layout(template='plotly_dark', height=280,
-                                margin=dict(l=10,r=10,t=10,b=10),
-                                yaxis=dict(range=[0, 110], title="Win %"))
-            st.plotly_chart(fig_d, use_container_width=True)
-
-        # P&L distribution
-        with ana_col3:
-            st.markdown("**P&L Distribution**")
-            fig_p = go.Figure(go.Histogram(
-                x=df_a['pnl'],
-                marker_color='#3498db',
-                nbinsx=15,
-            ))
-            fig_p.add_vline(x=0, line_color='#e74c3c', line_dash='dash')
-            fig_p.update_layout(template='plotly_dark', height=280,
-                                margin=dict(l=10,r=10,t=10,b=10),
-                                xaxis_title="P&L ($)", yaxis_title="# trades")
-            st.plotly_chart(fig_p, use_container_width=True)
-    else:
-        st.info("Log at least 3 trades to unlock analytics — strategy win rates, best days, P&L distribution.")
-
-# ─────────────────────────────────────────────────────────────────────────────
-# TAB 5  JOURNAL
-# ─────────────────────────────────────────────────────────────────────────────
-with tab5:
-    st.markdown("## 📝 TRADE JOURNAL")
-    st.markdown("*Log every trade — wins and losses*")
-
-    # ── Three-Strike Auto-Block ───────────────────────────────────────────────
-    _reds_today = st.session_state.daily_reds
-    _blocked    = _reds_today >= 3
-    if _blocked:
-        st.markdown("""
-        <div class="red-box">
-        <h2>🛑 THREE STRIKES — JOURNAL LOCKED FOR TODAY</h2>
-        <p>You've had <strong>3 red trades</strong> today. The rules are clear: <strong>STOP TRADING.</strong></p>
-        <p>No more setups today. Close your charts. Review your tendencies. Come back tomorrow fresh.</p>
-        <p style="color:#f39c12;"><em>"The best trade is sometimes no trade." — every pro trader ever</em></p>
-        </div>
-        """, unsafe_allow_html=True)
-    elif _reds_today > 0:
-        st.markdown(
-            f'<div class="yellow-box"><p>⚠️ <strong>{_reds_today}/3 red trades today.</strong> '
-            f'One more red trade locks the journal. Trade only A+ setups now.</p></div>',
-            unsafe_allow_html=True
-        )
-
-    # ── Webull CSV Import ─────────────────────────────────────────────────────
-    with st.expander("📥 Import from Webull CSV", expanded=False):
-        st.markdown("""
-        **How to export from Webull:**
-        1. Webull app → **Account** → **Orders** (top right)
-        2. Filter to **Options** → tap ↗ export icon (top right)
-        3. Choose date range → **Export**
-        4. Upload the CSV file here
-        """)
-        st.caption("All pairing is automatic — buys matched to sells, P&L calculated.")
-
-        _wb_file = st.file_uploader("Upload Webull Order History CSV",
-                                    type=["csv"], key="wb_csv_uploader")
-        if _wb_file:
-            try:
-                _wb_df = pd.read_csv(_wb_file)
-                # Normalise column names
-                _wb_df.columns = [c.strip() for c in _wb_df.columns]
-                st.markdown(f"**{len(_wb_df)} rows · Columns:** `{list(_wb_df.columns)}`")
-
-                # ── Flexible column detection ──────────────────────────────
-                def _find_col(df, *keywords):
-                    for kw in keywords:
-                        for c in df.columns:
-                            if kw.lower() in c.lower():
-                                return c
-                    return None
-
-                _sym_c  = _find_col(_wb_df, 'symbol', 'ticker', 'option')
-                _side_c = _find_col(_wb_df, 'side', 'action', 'buy/sell', 'type')
-                _px_c   = _find_col(_wb_df, 'avg. price', 'avg price', 'price', 'fill')
-                _qty_c  = _find_col(_wb_df, 'filled qty', 'qty', 'quantity', 'shares')
-                _dt_c   = _find_col(_wb_df, 'filled at', 'placed', 'date', 'time')
-                _st_c   = _find_col(_wb_df, 'status')
-
-                if not _sym_c or not _side_c or not _px_c:
-                    st.error(
-                        f"Couldn't auto-detect columns. Found: {list(_wb_df.columns)}\n\n"
-                        "Expected columns containing: symbol, side (buy/sell), price."
-                    )
-                else:
-                    # Filter to filled orders only
-                    _wdf = _wb_df.copy()
-                    if _st_c:
-                        _wdf = _wdf[_wdf[_st_c].astype(str).str.lower()
-                                    .isin(['filled', 'complete', 'executed', 'all filled'])]
-
-                    # Separate buys / sells
-                    _buys  = _wdf[_wdf[_side_c].astype(str).str.upper()
-                                  .isin(['BUY', 'BOUGHT', 'B', 'BUY TO OPEN'])].copy()
-                    _sells = _wdf[_wdf[_side_c].astype(str).str.upper()
-                                  .isin(['SELL', 'SOLD', 'S', 'SELL TO CLOSE'])].copy()
-
-                    _matched = set()
-                    _parsed  = []
-                    for _, _br in _buys.iterrows():
-                        _bsym = str(_br[_sym_c]).strip()
-                        try:
-                            _bpx = float(str(_br[_px_c]).replace('$','').replace(',',''))
-                        except Exception:
-                            continue
-                        _bqty = 1
-                        if _qty_c:
-                            try:
-                                _bqty = max(1, int(float(str(_br[_qty_c]).replace(',',''))))
-                            except Exception:
-                                pass
-                        _bdt = str(_br[_dt_c]).split()[0] if _dt_c else date.today().isoformat()
-
-                        for _si, _sr in _sells.iterrows():
-                            if _si in _matched:
-                                continue
-                            if str(_sr[_sym_c]).strip() != _bsym:
-                                continue
-                            try:
-                                _spx = float(str(_sr[_px_c]).replace('$','').replace(',',''))
-                            except Exception:
-                                continue
-                            _sqty = 1
-                            if _qty_c:
-                                try:
-                                    _sqty = max(1, int(float(str(_sr[_qty_c]).replace(',',''))))
-                                except Exception:
-                                    pass
-                            _matched.add(_si)
-                            _pnl   = round((_spx - _bpx) * min(_bqty, _sqty) * 100, 2)
-                            # Extract underlying (first word of option symbol)
-                            _under = _bsym.split()[0] if ' ' in _bsym else _bsym
-                            _side  = ('Put' if 'put' in _bsym.lower() else 'Call')
-                            _parsed.append({
-                                'date':     _bdt,
-                                'ticker':   _under,
-                                'strategy': 'Imported — Webull',
-                                'side':     _side,
-                                'entry':    _bpx,
-                                'exit':     _spx,
-                                'pnl':      _pnl,
-                                'result':   'Green' if _pnl >= 0 else 'Red',
-                                'notes':    _bsym,
-                            })
-                            break
-
-                    if not _parsed:
-                        st.warning(
-                            "No matched buy→sell pairs found. "
-                            "Make sure you exported **Options** order history "
-                            "and that both legs of each trade are in the file."
-                        )
-                        st.dataframe(_wb_df.head(5))
-                    else:
-                        st.success(f"✅ {len(_parsed)} completed trades detected")
-                        st.dataframe(pd.DataFrame(_parsed), use_container_width=True)
-                        if st.button(f"✅ Import {len(_parsed)} trades", key="wb_import_btn",
-                                     type="primary"):
-                            for _t in _parsed:
-                                save_trade(_t)
-                            st.session_state.trades = load_trades()
-                            st.cache_data.clear()
-                            st.success(f"Imported {len(_parsed)} trades! Journal updated.")
-                            st.rerun()
-            except Exception as _e:
-                st.error(f"Error reading CSV: {_e}")
-                st.caption("Try exporting again from Webull with the default settings.")
-
-    # ── Google Sheets Export ──────────────────────────────────────────────────
-    with st.expander("📊 Export to Google Sheets", expanded=False):
-        st.markdown("""
-        **Sync your trades to Google Sheets for advanced analysis and sharing.**
-
-        [How to get your Sheet ID](https://developers.google.com/sheets/api/guides/concepts#spreadsheet_id)
-        — it's the long string in the URL between `/d/` and `/edit`.
-        """)
-        _gs_sheet_id  = st.text_input("Google Sheet ID", placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms", key="gs_sheet_id")
-        _gs_tab_name  = st.text_input("Sheet Tab Name", value="Trades", key="gs_tab_name")
-
-        if st.button("Sync Now", type="primary", key="gs_sync_btn"):
-            try:
-                import gspread
-                from google.oauth2.service_account import Credentials as _GCreds
-
-                _CREDS_PATH = Path(__file__).parent / "src" / "data" / "small_account" / "google_creds.json"
-                if not _CREDS_PATH.exists():
-                    st.error(f"""
-**google_creds.json not found** at `{_CREDS_PATH}`
-
-**How to set it up:**
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a project → Enable **Google Sheets API** + **Google Drive API**
-3. IAM & Admin → Service Accounts → Create service account
-4. Download the JSON key file
-5. Save it as: `{_CREDS_PATH}`
-6. Share your Google Sheet with the service account email (found in the JSON)
-                    """)
-                elif not _gs_sheet_id.strip():
-                    st.warning("Enter a Google Sheet ID above.")
-                else:
-                    _scopes  = [
-                        "https://www.googleapis.com/auth/spreadsheets",
-                        "https://www.googleapis.com/auth/drive",
-                    ]
-                    _creds   = _GCreds.from_service_account_file(str(_CREDS_PATH), scopes=_scopes)
-                    _gc      = gspread.authorize(_creds)
-                    _sh      = _gc.open_by_key(_gs_sheet_id.strip())
-                    _tab_nm  = _gs_tab_name.strip() or "Trades"
-                    try:
-                        _ws  = _sh.worksheet(_tab_nm)
-                    except gspread.WorksheetNotFound:
-                        _ws  = _sh.add_worksheet(title=_tab_nm, rows=1000, cols=20)
-                        _ws.append_row(TRADE_FIELDS)
-
-                    # Load existing rows to deduplicate
-                    _existing = _ws.get_all_records()
-                    _exist_keys = set()
-                    for _row in _existing:
-                        _k = (
-                            str(_row.get('date', ''))[:10],
-                            str(_row.get('ticker', '')).upper(),
-                            str(_row.get('side', '')).lower(),
-                        )
-                        _exist_keys.add(_k)
-
-                    _new_trades = []
-                    for _t in st.session_state.get('trades', []):
-                        _k = (
-                            str(_t.get('date', ''))[:10],
-                            str(_t.get('ticker', '')).upper(),
-                            str(_t.get('side', '')).lower(),
-                        )
-                        if _k not in _exist_keys:
-                            _new_trades.append(_t)
-
-                    for _nt in _new_trades:
-                        _ws.append_row([str(_nt.get(f, '')) for f in TRADE_FIELDS])
-
-                    st.success(f"Synced {len(_new_trades)} new trades to Google Sheets ({_tab_nm}).")
-
-            except ImportError:
-                st.info(
-                    "gspread / google-auth not installed. Run: "
-                    "`pip install gspread>=6.0.0 google-auth>=2.0.0`"
-                )
-            except Exception as _gs_err:
-                st.error(f"Google Sheets sync failed: {_gs_err}")
-
-    with st.expander("➕ Log New Trade", expanded=False and not _blocked):
-        c1, c2 = st.columns(2)
-        with c1:
-            ticker_sel   = st.text_input("Ticker", value=st.session_state.get('selected_ticker', ''), placeholder="e.g. NVDA", key="journal_ticker").upper().strip()
-            strategy_sel = st.selectbox("Strategy", ALL_STRATEGIES)
-            side_sel     = st.radio("Side", ["Call", "Put"])
-            entry_p      = st.number_input("Entry Price ($)", value=0.66, step=0.01, min_value=0.01)
-        with c2:
-            exit_p  = st.number_input("Exit Price ($)", value=0.82, step=0.01, min_value=0.01)
-            pnl_val = round((exit_p - entry_p) * 100, 2)
-            st.metric("P/L This Trade", f"${pnl_val:+.2f}")
-            result_sel = st.radio("Result", ["Green", "Flat", "Red"])
-            notes_val  = st.text_area("Notes", placeholder="What did you see? Why enter? How did it feel?")
-
-        if st.button("💾 Save Trade", type="primary", disabled=_blocked):
-            trade = {
-                'date': datetime.now().isoformat(), 'ticker': ticker_sel,
-                'strategy': strategy_sel, 'side': side_sel,
-                'entry': entry_p, 'exit': exit_p, 'pnl': pnl_val,
-                'result': result_sel, 'notes': notes_val,
-            }
-            st.session_state.trades.append(trade)
-            save_trade(trade)
-            st.success(f"Trade logged! P/L: ${pnl_val:+.2f}")
-            st.rerun()  # recalculates balance from CSV on next load
-
-    st.markdown("### Trade History")
-    if st.session_state.trades:
-        df_j = pd.DataFrame(st.session_state.trades)
-        show = [c for c in TRADE_FIELDS if c in df_j.columns]
-        st.dataframe(df_j[show], use_container_width=True)
-        st.download_button(
-            "📥 Export to CSV",
-            df_j.to_csv(index=False),
-            f"trades_{datetime.now().strftime('%Y%m%d')}.csv",
-            "text/csv"
-        )
-    else:
-        st.info("No trades logged yet. Start trading and log your first trade!")
-
-# ─────────────────────────────────────────────────────────────────────────────
-# TAB 6  MARKET REGIME
-# ─────────────────────────────────────────────────────────────────────────────
-with tab6:
-    st.markdown("## 🌡️ MARKET REGIME")
-    st.markdown("*Check this first — it determines which strategy mode to use*")
-
-    regime  = get_regime_data()
-    sectors = get_sector_data()
-
-    # Index cards
-    col_spy, col_qqq, col_iwm, col_vix = st.columns(4)
-    index_map = [
-        (col_spy, 'SPY',  'S&P 500'),
-        (col_qqq, 'QQQ',  'Nasdaq'),
-        (col_iwm, 'IWM',  'Russell 2K'),
-        (col_vix, '^VIX', 'VIX'),
-    ]
-    for col, sym, label in index_map:
-        d = regime.get(sym, {})
-        with col:
-            if d:
-                color    = "#2ecc71" if d['change'] > 0 else "#e74c3c"
-                ma_icon  = "✅ above 20MA" if d.get('above_ma') else "❌ below 20MA"
-                # VIX: invert color logic (high VIX = bad)
-                if sym == '^VIX':
-                    color   = "#e74c3c" if d['price'] > 25 else "#2ecc71"
-                    ma_icon = f"VIX {'🔴 ELEVATED' if d['price'] > 25 else '🟢 CALM'}"
-                st.markdown(f"""
-                <div class="trade-card">
-                <h3>{label}</h3>
-                <p style="font-size:26px; color:{color}; font-weight:bold;">${d['price']:.2f}</p>
-                <p style="color:{color};">{d['change']:+.2f}%</p>
-                <p><small>{ma_icon}</small></p>
-                </div>""", unsafe_allow_html=True)
-            else:
-                with col:
-                    st.markdown(f'<div class="trade-card"><h3>{label}</h3><p>Loading…</p></div>', unsafe_allow_html=True)
-
-    # Regime determination
-    spy_d  = regime.get('SPY', {})
-    qqq_d  = regime.get('QQQ', {})
-    vix_d  = regime.get('^VIX', {})
-    vix_px = vix_d.get('price', 25)
-    above  = sum(1 for x in [spy_d, qqq_d] if x.get('above_ma'))
-
-    if above == 2 and vix_px < 25:
-        rlabel, rbox = "🟢 MOMENTUM FAVORABLE — Full strategy active. A+ and A setups.", "green-box"
-    elif above >= 1 or vix_px < 30:
-        rlabel, rbox = "🟡 MIXED CONDITIONS — A+ setups only. Reduce size. Skip B-grades.", "yellow-box"
-    else:
-        rlabel, rbox = "🔴 DEFENSIVE MODE — A+ setups only or sit on hands. Wait for better conditions.", "red-box"
-
-    st.markdown(f'<div class="{rbox}" style="margin-top:16px;"><h3>{rlabel}</h3></div>', unsafe_allow_html=True)
-
-    # Sectors
-    st.markdown("### Sector Performance Today")
-    if sectors:
-        scols = st.columns(len(sectors))
-        for col, (sym, d) in zip(scols, sectors.items()):
-            color = "#2ecc71" if d['change'] > 0 else "#e74c3c"
-            with col:
-                st.markdown(f"""
-                <div class="trade-card" style="text-align:center; padding:10px;">
-                <strong>{sym}</strong><br>
-                <small>{d['name']}</small><br>
-                <span style="color:{color}; font-size:20px; font-weight:bold;">{d['change']:+.1f}%</span>
-                </div>""", unsafe_allow_html=True)
-    else:
-        st.info("Sector data loading…")
-
-    # ── Intraday Sector Money Flow ─────────────────────────────────────────────
-    st.markdown("---")
-    st.markdown("### 💸 Intraday Money Flow — Last 30 Minutes")
-    st.caption("Where hot money rotated RIGHT NOW vs daily % change. Updated every 60 seconds.")
-
-    flow = get_intraday_sector_flow()
-    if flow:
-        # Bar chart: RS vs SPY for last 30 min
-        fig_flow = go.Figure()
-        flow_colors = [r['flow_color'] for r in flow]
-        fig_flow.add_trace(go.Bar(
-            x=[f"{r['arrow']} {r['symbol']}" for r in flow],
-            y=[r['rs_30m'] for r in flow],
-            marker_color=flow_colors,
-            text=[
-                f"{r['rs_30m']:+.2f}%<br>{r['vol_ratio']:.1f}x vol"
-                for r in flow
-            ],
-            textposition='outside',
-        ))
-        fig_flow.add_hline(y=0, line_color='#8b92a8', line_dash='dash')
-        fig_flow.update_layout(
-            template='plotly_dark', height=280,
-            margin=dict(l=10, r=10, t=10, b=10),
-            xaxis_title="Sector",
-            yaxis_title="RS vs SPY (30 min) %",
-            showlegend=False,
-        )
-        st.plotly_chart(fig_flow, use_container_width=True)
-
-        # Detail table
-        flow_cols = st.columns(5)
-        for i, r in enumerate(flow[:5]):
-            with flow_cols[i]:
-                st.markdown(
-                    f"<div style='background:#1e2130; border-radius:8px; "
-                    f"padding:8px; text-align:center;'>"
-                    f"<strong style='color:{r['flow_color']};'>{r['symbol']}</strong><br>"
-                    f"<small>{r['name']}</small><br>"
-                    f"<span style='color:{r['flow_color']}; font-size:18px; font-weight:bold;'>"
-                    f"{r['arrow']} {r['rs_30m']:+.2f}%</span><br>"
-                    f"<small style='color:#8b92a8;'>30m: {r['chg_30m']:+.2f}% "
-                    f"· vol {r['vol_ratio']:.1f}x</small><br>"
-                    f"<small style='color:{r['flow_color']};'>{r['flow_label']}</small>"
-                    f"</div>",
-                    unsafe_allow_html=True
-                )
-
-        st.markdown("---")
-        st.markdown(
-            "**Reading this:** Bars above 0 = sector outperforming SPY right now. "
-            "↑↑ = accelerating. High vol ratio = institutional conviction behind the move. "
-            "Trade stocks from the top-ranked sector first."
-        )
-    else:
-        st.info("Market data loading… check back after 9:30 AM ET open.")
-
-    # Hot sectors note
-    st.markdown("---")
-    st.markdown("""**Current Hot Themes (May 2026):**
-    🟢 AI Infrastructure · Edge Computing · Healthcare/GLP-1 · Energy/Industrials · Defense/Copper
-    🔴 Avoid: Enterprise SaaS (AI disruption risk) · Consumer Discretionary""")
-
-    # PDT countdown
-    pdt_days = (PDT_CHANGE_DATE - date.today()).days
-    st.markdown("---")
-    if pdt_days > 0:
-        st.info(f"⏳ **PDT Rule Change in {pdt_days} days** (June 4, 2026) — $25k minimum eliminated, replaced with $2k intraday margin requirement. Cash accounts (like your $250) were never subject to PDT anyway — your limit is T+1 settlement.")
-    else:
-        st.success("✅ PDT Rule Changed — No more day trade counting on margin accounts.")
-
-# ─────────────────────────────────────────────────────────────────────────────
-# TAB 7  CATALYST GRADER
-# ─────────────────────────────────────────────────────────────────────────────
-with tab7:
-    st.markdown("## 🔍 PRE-MARKET CATALYST GRADER")
-    st.markdown("*SMB 5-check system — run this before every catalyst play*")
-
-    c_left, c_right = st.columns([1, 1])
-
-    with c_left:
-        ticker_g = st.text_input("Ticker Symbol", value=st.session_state.get('selected_ticker', ''), placeholder="e.g. FSLY", key="grader_ticker").upper().strip()
-
-        st.markdown("#### 5 Checks in Favor")
-        ch1 = st.checkbox("1. Pre-market % AVOL > 20%  *(extended hours vol ÷ 30-day avg daily vol)*")
-        ch2 = st.checkbox("2. Inflection quarter  *(first clean profitable beat + accelerating revenue YoY)*")
-        ch3 = st.checkbox("3. Higher timeframe chart  *(base breakout, room to run, not extended)*")
-
-        theme_sel = st.selectbox("4. Theme alignment", [
-            "✅ AI Infrastructure / Edge Computing",
-            "✅ Healthcare / GLP-1 / Biotech",
-            "✅ Energy / Industrials / Defense",
-            "✅ Copper / Data Centers / Power",
-            "⚠️ Neutral / Other",
-            "❌ Enterprise SaaS / Software (AI disruption risk)",
-            "❌ Consumer Discretionary",
-        ])
-        ch4 = not theme_sel.startswith("❌")
-
-        ch5 = st.checkbox("5. Market environment supports breakouts  *(check Regime tab — green or yellow?)*")
-
-        checks = [ch1, ch2, ch3, ch4, ch5]
-        score  = sum(checks)
-
-        st.markdown(f"**Checks confirmed: {score} / 5**")
-
-    with c_right:
-        if ticker_g:
-            snap  = get_snapshot(ticker_g)
-            price = snap.get('price', 0)
-
-            # Grade
-            if score == 5:
-                grade, gbox = "A+", "green-box"
-                note = "All 5 checks confirmed. This is your best-case scenario. Trade it — 1 contract, icebreaker rule."
-            elif score == 4:
-                grade, gbox = "A", "green-box"
-                note = "Strong setup. Trade it with full discipline. Stay strict on exits."
-            elif score == 3:
-                grade, gbox = "B", "yellow-box"
-                note = "Borderline. If you trade it, reduce size and be quicker to exit."
-            else:
-                grade, gbox = "SKIP", "red-box"
-                note = "Too many unknowns. There will be a better setup tomorrow."
-
-            st.markdown(f"""
-            <div class="{gbox}">
-            <h2>Grade: {grade} &nbsp;&nbsp; ({score}/5)</h2>
-            <p>{note}</p>
-            </div>""", unsafe_allow_html=True)
-
-            # ── Max Pain check ────────────────────────────────────────────
-            mp_g = get_max_pain(ticker_g)
-            if mp_g.get("available"):
-                st.markdown(f"""
-                <div style="background:#1e2130; border-radius:8px; padding:10px 14px; margin-bottom:8px;">
-                <strong style="color:{mp_g['pull_color']};">
-                  📌 Max Pain: ${mp_g['max_pain_strike']:.0f} &nbsp;
-                  ({mp_g['diff_pct']:+.1f}% from ${mp_g['current_price']:.2f}) &nbsp;
-                  {mp_g['pull_label']}
-                </strong><br>
-                <span style="color:{mp_g['pin_color']}; font-size:13px;">
-                  {mp_g['pin_status']}
-                </span><br>
-                <span style="color:#8b92a8; font-size:12px;">
-                  {mp_g['pull_note']} &nbsp;·&nbsp; Expiry: {mp_g['expiry']} ({mp_g['days_to_exp']} days)
-                </span>
-                </div>""", unsafe_allow_html=True)
-
-            # ── Relative Strength check ───────────────────────────────────
-            rs_g = get_rs_vs_spy(ticker_g)
-            if rs_g.get("available"):
-                rs_g_ratio = (
-                    f"{rs_g['rs']:.1f}x" if abs(rs_g['rs']) < 90
-                    else ("∞ (leading)" if rs_g['rs'] > 0 else "lagging badly")
-                )
-                rs_g_box = (
-                    "green-box"  if rs_g['score'] >= 7 else
-                    "red-box"    if rs_g['score'] <= 3 else
-                    "yellow-box"
-                )
-                st.markdown(f"""
-                <div class="{rs_g_box}">
-                <h3>📊 RS vs SPY: {rs_g['label']} &nbsp; {rs_g['stars']}</h3>
-                <p>{rs_g['desc']}</p>
-                <p style="font-size:12px; color:#8b92a8;">
-                  {ticker_g}: {rs_g['stock_chg']:+.1f}% &nbsp;·&nbsp;
-                  SPY: {rs_g['spy_chg']:+.1f}% &nbsp;·&nbsp;
-                  Ratio: {rs_g_ratio}
-                </p>
-                </div>""", unsafe_allow_html=True)
-            else:
-                st.info(f"RS data loading for {ticker_g}…")
-
-            # ── IV Rank check ─────────────────────────────────────────────
-            iv_g = get_iv_rank(ticker_g)
-            if iv_g.get("available"):
-                iv_box = (
-                    "green-box"  if iv_g['grade'] == "CHEAP" else
-                    "red-box"    if iv_g['grade'] == "RICH"  else
-                    "yellow-box"
-                )
-                iv_warn = ""
-                if iv_g['grade'] == "RICH":
-                    iv_warn = " ⚠️ Consider waiting for IV to drop before entering."
-                elif iv_g['grade'] == "CHEAP":
-                    iv_warn = " ✅ Good time to buy options — premium is cheap."
-                st.markdown(f"""
-                <div class="{iv_box}">
-                <h3>{iv_g['emoji']} IV Rank: {iv_g['iv_rank']:.0f} — Options are {iv_g['grade']}{iv_warn}</h3>
-                <p>{iv_g['advice']}</p>
-                <p style="font-size:12px; color:#8b92a8;">
-                  Current IV: {iv_g['current_iv']}% &nbsp;|&nbsp;
-                  HV20: {iv_g['hv20']}% &nbsp;|&nbsp;
-                  HV63: {iv_g['hv63']}% &nbsp;|&nbsp;
-                  IV/HV ratio: {iv_g['ratio']}x &nbsp;|&nbsp;
-                  Expiry used: {iv_g['expiry']}
-                </p>
-                </div>""", unsafe_allow_html=True)
-            else:
-                st.info(f"IV data loading for {ticker_g}…")
-
-            # ── Options liquidity check ───────────────────────────────────────
-            if price > 0:
-                if price < 5:
-                    st.error(f"⚠️ Options Liquidity: {ticker_g} at ${price:.2f} — stocks under $5 almost never have liquid options. Wide spreads will eat your edge. Consider skipping or trading a correlated liquid name.")
-                elif price < 10:
-                    st.warning(f"⚠️ Options Liquidity: {ticker_g} at ${price:.2f} — verify open interest > 200 contracts and bid/ask spread < 10% before entering.")
-                else:
-                    st.success(f"✅ {ticker_g} at ${price:.2f} — price range supports options liquidity. Still confirm open interest > 200 and tight spread.")
-
-                if grade in ("A+", "A"):
-                    strike = round(price)
-                    st.markdown("### Entry Plan")
-                    st.markdown(f"""
-| Field | Value |
-|---|---|
-| Strike | ${strike} ATM |
-| Delta target | 0.40 – 0.60 |
-| Expiry | Next weekly (1–2 weeks out) |
-| Contracts | **1** (icebreaker rule) |
-| Exit +15% | Premium × 1.15 |
-| Exit +25% | Premium × 1.25 |
-| Stop loss | −30% premium OR back below VWAP |
-| Window | **9:30 – 9:30 AM CT only** |
-                    """)
-        else:
-            st.info("Enter a ticker symbol on the left to grade the setup.")
-            st.markdown("""
-**How to use this tab:**
-1. Run pre-market scanner (Finviz, TradingView) at 7:00 AM CT (pre-market opens)
-2. Find stocks with > 20% pre-market volume vs daily average
-3. Enter each candidate here and work through the 5 checks
-4. Only trade A or A+ grades
-5. Cross-reference with Regime tab before entering
-""")
-
-# ─────────────────────────────────────────────────────────────────────────────
-# TAB 8  OPTIONS PLANNER
-# ─────────────────────────────────────────────────────────────────────────────
-with tab8:
-    st.markdown("## 💰 OPTIONS TRADE PLANNER")
-
-    st.markdown("""
-    <div style="background:#1e2130; border-radius:10px; padding:12px 16px; margin-bottom:12px;">
-      <span style="color:#2ecc71; font-size:16px; font-weight:bold;">✅ AVAILABLE NOW (Level 2)</span>
-      &nbsp;&nbsp;|&nbsp;&nbsp;
-      <span style="color:#e74c3c; font-size:16px; font-weight:bold;">🔒 LOCKED (Level 3 + $2,000 margin)</span><br>
-      <span style="color:#8b92a8; font-size:13px;">Use the <strong style="color:#2ecc71;">Directional Call / Put</strong> mode today.
-      The XSP spread calculator is shown for learning — you can't execute it yet.</span>
-    </div>
-    """, unsafe_allow_html=True)
-
-    mode = st.radio(
-        "Select mode:",
-        ["📈 Directional Call Play (momentum) — ✅ AVAILABLE NOW", "📊 XSP Put Credit Spread (income) — 🔒 LOCKED"],
-        horizontal=True
-    )
-
-    st.markdown("---")
-
-    # ── Mode A: Directional Call ──────────────────────────────────────────────
-    if "Directional" in mode:
-        st.markdown("### Directional Call / Put — Momentum Setup")
-        st.caption("Use after Catalyst Grader confirms A or A+ grade. Entry window 9:30–9:30 AM CT only.")
-
-        c1, c2 = st.columns(2)
-        with c1:
-            d_tick   = st.text_input("Ticker", value=st.session_state.get('selected_ticker', ''), placeholder="e.g. FSLY", key="planner_ticker").upper()
-            d_price  = st.number_input("Current Stock Price ($)", value=0.0, step=0.01, min_value=0.0)
-            d_prem   = st.number_input("Option Ask — Premium ($)", value=0.0, step=0.01, min_value=0.0,
-                                        help="The price you pay per share. Multiply × 100 for total cost.")
-            d_side   = st.radio("Direction", ["Call (bullish)", "Put (bearish)"], horizontal=True)
-            d_time   = st.time_input("Entry Time (CT)", value=datetime.strptime("08:35", "%H:%M").time())
-
-        with c2:
-            # Max Pain chart — shows where price is being magnetically pulled
-            if d_tick:
-                mp_p = get_max_pain(d_tick)
-                if mp_p.get("available") and mp_p['pain_strikes']:
-                    st.markdown(f"""
-                    <div style="background:#1e2130; border-radius:8px;
-                                padding:10px 14px; margin-bottom:8px;">
-                    <strong style="color:{mp_p['pull_color']};">
-                      📌 Max Pain: ${mp_p['max_pain_strike']:.0f} &nbsp;
-                      {mp_p['pull_label']}
-                    </strong><br>
-                    <span style="color:{mp_p['pin_color']}; font-size:13px;">
-                      {mp_p['pin_status']}
-                    </span><br>
-                    <span style="color:#8b92a8; font-size:12px;">
-                      {mp_p['pull_note']}
-                    </span>
-                    </div>""", unsafe_allow_html=True)
-
-                    # Pain curve chart
-                    fig_mp = go.Figure()
-                    fig_mp.add_trace(go.Bar(
-                        x=mp_p['pain_strikes'],
-                        y=mp_p['pain_values'],
-                        marker_color=[
-                            "#e74c3c" if s == mp_p['max_pain_strike']
-                            else "#3498db"
-                            for s in mp_p['pain_strikes']
-                        ],
-                        name="Total Pain ($)",
-                    ))
-                    fig_mp.add_vline(
-                        x=mp_p['current_price'],
-                        line_color="#2ecc71", line_dash="dash",
-                        annotation_text=f"Price ${mp_p['current_price']:.2f}",
-                        annotation_font_color="#2ecc71",
-                    )
-                    fig_mp.add_vline(
-                        x=mp_p['max_pain_strike'],
-                        line_color="#e74c3c", line_dash="dot",
-                        annotation_text=f"Max Pain ${mp_p['max_pain_strike']:.0f}",
-                        annotation_font_color="#e74c3c",
-                    )
-                    fig_mp.update_layout(
-                        template='plotly_dark', height=220,
-                        margin=dict(l=10, r=10, t=10, b=30),
-                        xaxis_title="Strike",
-                        yaxis_title="Total Pain ($)",
-                        showlegend=False,
-                    )
-                    st.plotly_chart(fig_mp, use_container_width=True)
-                    st.caption(
-                        f"Red bar = max pain strike. Green dashed = current price. "
-                        f"Price is pulled toward the red bar as {mp_p['expiry']} approaches."
-                    )
-
-            # IV Rank — show before the plan so you know what you're paying
-            if d_tick:
-                iv_p = get_iv_rank(d_tick)
-                if iv_p.get("available"):
-                    iv_p_box = (
-                        "green-box"  if iv_p['grade'] == "CHEAP" else
-                        "red-box"    if iv_p['grade'] == "RICH"  else
-                        "yellow-box"
-                    )
-                    st.markdown(f"""
-                    <div class="{iv_p_box}" style="padding:10px 14px; margin-bottom:8px;">
-                    <strong>{iv_p['emoji']} {d_tick} — Options are {iv_p['grade']} &nbsp;
-                    (IV Rank {iv_p['iv_rank']:.0f})</strong><br>
-                    <span style="font-size:13px;">{iv_p['advice']}</span><br>
-                    <span style="font-size:11px; color:#8b92a8;">
-                      IV {iv_p['current_iv']}% &nbsp;·&nbsp;
-                      HV20 {iv_p['hv20']}% &nbsp;·&nbsp;
-                      ratio {iv_p['ratio']}x
-                    </span>
-                    </div>""", unsafe_allow_html=True)
-
-            if d_price > 0 and d_prem > 0:
-                strike = round(d_price)
-                cost   = round(d_prem * 100, 2)
-                tgt15  = round(d_prem * 1.15, 2)
-                tgt25  = round(d_prem * 1.25, 2)
-                stop   = round(d_prem * 0.70, 2)
-                rr     = round((tgt25 - d_prem) / (d_prem - stop), 2) if d_prem > stop else 0
-
-                box_color = "green-box" if "Call" in d_side else "red-box"
-                st.markdown(f"""
-                <div class="{box_color}">
-                <h3>Trade Plan: {d_tick if d_tick else 'ticker'} {d_side}</h3>
-                <p><strong>Strike:</strong> ${strike} ATM &nbsp;|&nbsp; <strong>Delta target:</strong> 0.40–0.60</p>
-                <p><strong>Expiry:</strong> Next weekly (1–2 weeks out)</p>
-                <p><strong>Total cost:</strong> ${cost:.2f} (1 contract)</p>
-                <hr>
-                <p>🎯 <strong>Exit target 1 (+15%):</strong> sell at ${tgt15}</p>
-                <p>🎯 <strong>Exit target 2 (+25%):</strong> sell at ${tgt25}</p>
-                <p>🛑 <strong>Stop loss (−30%):</strong> exit at ${stop}</p>
-                <p><strong>Risk/Reward:</strong> {rr:.1f}:1</p>
-                </div>""", unsafe_allow_html=True)
-
-                cutoff = datetime.strptime("09:30", "%H:%M").time()
-                if d_time > cutoff:
-                    st.warning(f"⚠️ THETA WARNING: {d_time.strftime('%H:%M')} CT is past the 9:30 AM CT momentum window. Time decay accelerates sharply. Wait for tomorrow's open unless this is an exceptional A+ setup.")
-                else:
-                    mins_left = (datetime.combine(date.today(), cutoff) - datetime.combine(date.today(), d_time)).seconds // 60
-                    st.success(f"✅ In momentum window — {mins_left} min remaining before 9:30 AM CT cutoff (10:30 ET).")
-
-                # ── Options P&L Simulator ─────────────────────────────────────
-                st.markdown("---")
-                st.markdown("### 📊 Scenario Simulator")
-                st.caption("Black-Scholes estimate of option value at different stock prices. Not a guarantee — use as a guide.")
-
-                _sim_dte = st.slider("Days to expiry", min_value=1, max_value=45,
-                                     value=7, key="sim_dte")
-                _sim_iv  = st.slider("Implied Volatility (%)", min_value=10, max_value=300,
-                                     value=80, key="sim_iv",
-                                     help="Check IV Rank badge on your ticker card for the current IV.")
-                _sim_contracts = st.number_input("Contracts", min_value=1, max_value=10,
-                                                  value=1, step=1, key="sim_contracts")
-
-                # Black-Scholes call / put pricer
-                import math as _math
-                def _bs_price(S, K, T, iv, is_call=True, r=0.0):
-                    if T <= 0: return max((S-K if is_call else K-S), 0.0)
-                    if iv <= 0 or S <= 0 or K <= 0: return 0.0
-                    try:
-                        _d1 = (_math.log(S/K) + (r + 0.5*iv**2)*T) / (iv*_math.sqrt(T))
-                        _d2 = _d1 - iv*_math.sqrt(T)
-                        _N  = lambda x: 0.5*(1 + _math.erf(x/_math.sqrt(2)))
-                        if is_call:
-                            return max(S*_N(_d1) - K*_math.exp(-r*T)*_N(_d2), 0.0)
-                        else:
-                            return max(K*_math.exp(-r*T)*_N(-_d2) - S*_N(-_d1), 0.0)
-                    except Exception:
-                        return 0.0
-
-                _is_call = "Call" in d_side
-                _K       = float(strike)
-                _S0      = float(d_price)
-                _iv_dec  = _sim_iv / 100.0
-                _T0      = _sim_dte / 365.0
-                _prem    = float(d_prem)
-                _contracts = int(_sim_contracts)
-                _total_cost = round(_prem * 100 * _contracts, 2)
-
-                # Scenario rows: stock moves
-                _moves = [-0.20, -0.15, -0.10, -0.05, 0.0,
-                           0.05,  0.10,  0.15,  0.20,
-                           0.25,  0.30,  0.40,  0.50]
-                _rows = []
-                for _m in _moves:
-                    _S    = round(_S0 * (1 + _m), 2)
-                    _opt    = round(_bs_price(_S, _K, _T0, _iv_dec, _is_call), 2)
-                    _pnl_d  = round((_opt - _prem) * 100 * _contracts, 2)
-                    _pnl_pc = round((_opt - _prem) / _prem * 100, 1) if _prem > 0 else 0
-                    _rows.append({
-                        "Stock Move":  f"{_m:+.0%}",
-                        "Stock $":     f"${_S:.2f}",
-                        "Option $":    f"${_opt:.2f}",
-                        f"P&L ({_contracts}c)": f"${_pnl_d:+.2f}",
-                        "P&L %":       f"{_pnl_pc:+.1f}%",
-                        "_pnl":        _pnl_d,
-                    })
-
-                _df_sim = pd.DataFrame(_rows)
-
-                def _color_row(row):
-                    v = row["_pnl"]
-                    bg = "#1a3d1a" if v > 0 else ("#3d1a1a" if v < 0 else "#2a2d3e")
-                    return [f"background-color:{bg}"]*len(row)
-
-                st.dataframe(
-                    _df_sim.drop(columns=["_pnl"]).style.apply(_color_row, axis=1),
-                    use_container_width=True,
-                    hide_index=True,
-                )
-
-                # Break-even stock price
-                _be_move = (_K + _prem - _S0) / _S0 * 100 if _is_call else (_S0 - _K - _prem) / _S0 * -100
-                _target_stock_25 = _K + (_prem * 1.25) if _is_call else _K - (_prem * 1.25)
-
-                st.markdown(f"""
-                <div style="background:#1e2130; border-radius:8px; padding:10px 14px; font-size:13px;">
-                  <strong>Key levels:</strong><br>
-                  💀 Break-even at expiry: <strong>${_K + _prem:.2f}</strong> stock
-                  &nbsp;(+{_be_move:.1f}% from current)<br>
-                  🎯 +25% option exit → stock needs ≈ <strong>${_target_stock_25:.2f}</strong><br>
-                  💸 Max loss: <strong>${_total_cost:.2f}</strong> (full premium if expires worthless)<br>
-                  📅 Time decay: option loses ~${round(_prem*0.10*100*_contracts,2):.2f}
-                  /day at current theta estimate
-                </div>
-                """, unsafe_allow_html=True)
-
-                # Time decay table (at current stock price)
-                st.markdown("**Time decay at current stock price:**")
-                _decay_rows = []
-                for _days_left in [_sim_dte, max(_sim_dte-3,1), max(_sim_dte-7,1),
-                                   max(_sim_dte-14,1), 1]:
-                    _T_d    = _days_left / 365.0
-                    _opt_td = round(_bs_price(_S0, _K, _T_d, _iv_dec, _is_call), 2)
-                    _pnl_td = round((_opt_td - _prem)*100*_contracts, 2)
-                    _decay_rows.append({
-                        "Days Remaining": _days_left,
-                        "Option Value":   f"${_opt_td:.2f}",
-                        "P&L":            f"${_pnl_td:+.2f}",
-                    })
-                st.dataframe(pd.DataFrame(_decay_rows), use_container_width=True, hide_index=True)
-
-            else:
-                st.info("Enter stock price and option premium to generate trade plan.")
-
-    # ── Mode B: XSP Put Credit Spread ────────────────────────────────────────
-    else:
-        st.markdown("""
-        <div class="red-box">
-          <h2 style="color:#e74c3c;">🔒 NOT AVAILABLE YET — Requires Level 3 + Margin Account</h2>
-          <p><strong>What you need:</strong></p>
-          <ul>
-            <li>Webull options approval: <strong>Level 3</strong> (allows credit spreads)</li>
-            <li>Margin account with <strong>$2,000 minimum equity</strong></li>
-          </ul>
-          <p><strong>Your path:</strong> Grow to $2,000 via Level 2 call/put buying →
-          open margin account → apply for Level 3 → unlock this strategy.</p>
-          <p style="color:#f39c12;">⬇️ Calculator shown below for learning purposes only.</p>
-        </div>
-        """, unsafe_allow_html=True)
-        st.markdown("### XSP Put Credit Spread — Income Strategy (Preview)")
-        st.markdown("*Will enter when XSP (≈ SPY) closes above 20-day MA. Exit if it closes below.*")
-
-        xsp = get_xsp_data()
-        c1, c2 = st.columns(2)
-
-        with c1:
-            st.markdown("#### Signal Check (SPY as XSP proxy)")
-            if xsp:
-                sig_box  = "green-box" if xsp['above_ma'] else "red-box"
-                sig_text = "✅ SPY ABOVE 20-MA → ENTER SPREAD" if xsp['above_ma'] else "❌ SPY BELOW 20-MA → WAIT / EXIT EXISTING"
-                st.markdown(f'<div class="{sig_box}"><h3>{sig_text}</h3></div>', unsafe_allow_html=True)
-                st.metric("SPY Price",  f"${xsp['price']:.2f}")
-                st.metric("20-Day MA",  f"${xsp['ma20']:.2f}")
-                default_px = xsp['price']
-            else:
-                st.warning("SPY data unavailable — enter price manually")
-                default_px = 0.0
-
-            xsp_px = st.number_input("XSP/SPY Price (use actual XSP from Webull)", value=default_px, step=0.01, min_value=0.0)
-            credit = st.number_input("Credit to Collect ($ per share)", value=0.35, step=0.01, min_value=0.01,
-                                     help="Typical ATM 1-point put credit spread on XSP collects ~$0.33–$0.38")
-
-        with c2:
-            if xsp_px > 0 and credit > 0:
-                sell_s   = int(xsp_px)        # just below current price
-                buy_s    = sell_s - 1
-                cap_req  = round((1.00 - credit) * 100, 2)
-                max_pft  = round(credit * 100, 2)
-                max_loss = round((1.00 - credit) * 100, 2)
-                early_bv = round(credit * 0.24, 2)   # value remaining at 76% profit captured
-                early_pft = round(max_pft * 0.76, 2)
-
-                st.markdown(f"""
-                <div class="green-box">
-                <h3>Spread Setup</h3>
-                <p><strong>Sell:</strong> {sell_s} Put &nbsp;|&nbsp; <strong>Buy:</strong> {buy_s} Put</p>
-                <p><strong>Expiry:</strong> 14 days out (two weeks)</p>
-                <p><strong>Credit received:</strong> ${credit:.2f} → <strong>${max_pft:.0f} total</strong></p>
-                <p><strong>Capital required:</strong> <strong>${cap_req:.2f}</strong></p>
-                <p><strong>Max profit:</strong> ${max_pft:.0f} &nbsp;|&nbsp; <strong>Max loss:</strong> ${max_loss:.0f}</p>
-                <hr>
-                <h4>Velocity of Capital</h4>
-                <p>Close early when spread costs <strong>${early_bv:.2f}</strong> to buy back</p>
-                <p>That locks in <strong>${early_pft:.0f} profit (76%)</strong> — then re-establish at current price</p>
-                </div>""", unsafe_allow_html=True)
-
-                st.markdown("**Rules:**")
-                st.markdown(f"- Enter only when SPY/XSP closes **above** 20-day MA")
-                st.markdown(f"- Exit immediately if SPY/XSP closes **below** 20-day MA")
-                st.markdown(f"- Expiry: 14 days out")
-                st.markdown(f"- $250 account → **1 spread max** (${cap_req:.0f} at risk)")
-                st.markdown(f"- On Webull: need **Level 3 options approval** for credit spreads")
-            else:
-                st.info("Enter XSP price and credit amount to calculate the spread.")
-
-    # ── Quick Strategy Backtest ───────────────────────────────────────────────
-    st.markdown("---")
-    with st.expander("▶ Quick Strategy Backtest", expanded=False):
-        st.caption("Run a simple backtest directly in the dashboard using real OHLCV data.")
-
-        _bt_sym   = st.text_input("Symbol", value=st.session_state.get('selected_ticker', 'SPY'), key="bt_sym").upper().strip() or "SPY"
-        _bt_strat = st.selectbox("Strategy", ["MACD Crossover", "SMA Breakout", "Volume Spike Reversal"], key="bt_strat")
-        _bt_days  = st.slider("Lookback (days)", min_value=60, max_value=180, value=90, key="bt_days")
-
-        if st.button("Run Backtest", type="primary", key="bt_run"):
-            try:
-                import yfinance as _yf_bt
-                _bt_df = _yf_bt.Ticker(_bt_sym).history(period=f"{_bt_days}d", interval='1d')
-                if _bt_df is None or _bt_df.empty or len(_bt_df) < 20:
-                    st.warning(f"Not enough data for {_bt_sym}. Try a different symbol or shorter lookback.")
-                else:
-                    try:
-                        from backtesting import Backtest, Strategy
-                        import pandas_ta as ta
-
-                        _bt_df = _bt_df[['Open', 'High', 'Low', 'Close', 'Volume']].copy()
-                        _bt_df.index = pd.to_datetime(_bt_df.index).tz_localize(None)
-                        _bt_df.columns = ['Open', 'High', 'Low', 'Close', 'Volume']
-
-                        if _bt_strat == "MACD Crossover":
-                            class _S(Strategy):
-                                def init(self):
-                                    _c = pd.Series(self.data.Close)
-                                    _macd = ta.macd(_c)
-                                    if _macd is None or _macd.empty:
-                                        self._macd_line   = self.I(lambda: _c * 0)
-                                        self._signal_line = self.I(lambda: _c * 0)
-                                    else:
-                                        _ml = _macd.iloc[:, 0].values
-                                        _sl = _macd.iloc[:, 1].values
-                                        self._macd_line   = self.I(lambda: _ml)
-                                        self._signal_line = self.I(lambda: _sl)
-                                def next(self):
-                                    if self._macd_line[-1] > self._signal_line[-1] and self._macd_line[-2] <= self._signal_line[-2]:
-                                        if not self.position:
-                                            self.buy()
-                                    elif self._macd_line[-1] < self._signal_line[-1] and self._macd_line[-2] >= self._signal_line[-2]:
-                                        if self.position:
-                                            self.position.close()
-
-                        elif _bt_strat == "SMA Breakout":
-                            class _S(Strategy):
-                                def init(self):
-                                    _c = pd.Series(self.data.Close)
-                                    _sma_vals = _c.rolling(20).mean().values
-                                    self._sma = self.I(lambda: _sma_vals)
-                                def next(self):
-                                    if self.data.Close[-1] > self._sma[-1] and self.data.Close[-2] <= self._sma[-2]:
-                                        if not self.position:
-                                            self.buy()
-                                    elif self.data.Close[-1] < self._sma[-1] and self.data.Close[-2] >= self._sma[-2]:
-                                        if self.position:
-                                            self.position.close()
-
-                        else:  # Volume Spike Reversal
-                            class _S(Strategy):
-                                _bar_count = 0
-                                def init(self):
-                                    _v = pd.Series(self.data.Volume)
-                                    _avg_vals = _v.rolling(20).mean().values
-                                    self._avg_vol = self.I(lambda: _avg_vals)
-                                    self._entry_bar = 0
-                                def next(self):
-                                    _bar = len(self.data.Close)
-                                    _c   = self.data.Close
-                                    _v   = self.data.Volume
-                                    if self.position:
-                                        if _bar - self._entry_bar >= 5:
-                                            self.position.close()
-                                    else:
-                                        _avg = self._avg_vol[-1]
-                                        if _avg > 0 and _v[-1] > 2 * _avg:
-                                            _bar_chg = (_c[-1] - _c[-2]) / _c[-2] if _c[-2] > 0 else 0
-                                            if _bar_chg < -0.01:
-                                                self.buy()
-                                                self._entry_bar = _bar
-
-                        _bt_obj = Backtest(_bt_df, _S, cash=10_000, commission=0.002)
-                        _stats  = _bt_obj.run()
-
-                        _ret     = round(float(_stats.get('Return [%]', 0)), 2)
-                        _dd      = round(float(_stats.get('Max. Drawdown [%]', 0)), 2)
-                        _trades  = int(_stats.get('# Trades', 0))
-                        _winrate = round(float(_stats.get('Win Rate [%]', 0)), 1)
-                        _sharpe  = round(float(_stats.get('Sharpe Ratio', 0) or 0), 2)
-
-                        _ret_color  = "normal" if _ret >= 0 else "inverse"
-                        _dd_color   = "inverse"
-
-                        _m1, _m2, _m3, _m4, _m5 = st.columns(5)
-                        _m1.metric("Return %",     f"{_ret:+.2f}%",  delta_color=_ret_color)
-                        _m2.metric("Max Drawdown", f"{_dd:.2f}%",    delta_color=_dd_color)
-                        _m3.metric("Sharpe Ratio", f"{_sharpe:.2f}")
-                        _m4.metric("# Trades",     str(_trades))
-                        _m5.metric("Win Rate",     f"{_winrate:.1f}%")
-
-                        st.caption("3 months of data is thin — use as directional filter only")
-
-                    except ImportError:
-                        st.warning(
-                            "backtesting or pandas_ta not installed. Run: "
-                            "`pip install backtesting>=0.3.3 pandas_ta`"
-                        )
-                    except Exception as _bt_err:
-                        st.warning(f"Backtest error: {_bt_err}")
-
-            except Exception as _outer_err:
-                st.warning(f"Data fetch error: {_outer_err}")
-
-# ─────────────────────────────────────────────────────────────────────────────
-# TAB 9  COACH
-# ─────────────────────────────────────────────────────────────────────────────
-with tab9:
-    st.markdown("## 🧠 TENDENCIES COACH")
-    st.markdown("*Log your mistakes. Review before every trading session. Break the patterns.*")
-    st.caption("74% of small account failures come from repeating the same behavioral mistakes — not from bad strategy.")
-
-    c_left, c_right = st.columns([1, 1])
-
-    with c_left:
-        st.markdown("### Log a Tendency / Mistake")
-        tend_text = st.text_area(
-            "Describe the pattern:",
-            height=120,
-            placeholder="e.g. Held past 9:30 AM CT because I was convinced it would keep running. Lost 30% of premium to theta. Rule: breakout or bailout."
-        )
-        if st.button("💾 Save Tendency", type="primary"):
-            if tend_text.strip():
-                save_tendency(tend_text.strip())
-                st.session_state.tendencies = load_tendencies()
-                st.success("Logged.")
-                st.rerun()
-
-        st.markdown("---")
-        st.markdown("### Pre-Trade Checklist")
-        st.markdown("*Check all boxes before placing any trade*")
-        pre_checks = [
-            "Reviewed my tendencies list →",
-            "Setup is A or A+ (Catalyst Grader tab)",
-            "Regime is green or yellow (Regime tab)",
-            "Entry time is before 9:30 AM CT (momentum window)",
-            "Options liquidity verified (OI > 200, spread < 10%)",
-            "1 contract only — icebreaker rule",
-            "Stop loss level pre-defined before entry",
-            "This is not revenge trading",
-            "I have not already had 3 losing trades today",
-        ]
-        for i, item in enumerate(pre_checks):
-            st.checkbox(item, key=f"pre_{i}")
-
-    with c_right:
-        st.markdown("### Your Tendencies")
-        tends = st.session_state.tendencies
-        if tends:
-            for t in reversed(tends[-15:]):
-                st.markdown(f"""
-                <div class="yellow-box">
-                <p><small>📅 {t.get('date', '')}</small></p>
-                <p>{t.get('tendency', '')}</p>
-                </div>""", unsafe_allow_html=True)
-
-            df_t = pd.DataFrame(tends)
-            st.download_button(
-                "📥 Export Tendencies",
-                df_t.to_csv(index=False),
-                f"tendencies_{datetime.now().strftime('%Y%m%d')}.csv",
-                "text/csv"
-            )
-        else:
-            st.info("No tendencies logged yet. After every losing trade, come here and describe what went wrong. This is where your edge gets built.")
-            st.markdown("""
-**Common tendencies to watch for:**
-- Holding past 9:30 AM CT (theta enemy)
-- Chasing after missing the first entry
-- Revenge trading after a loss
-- Entering B-grade setups on slow days
-- Ignoring the regime tab (trading into bad environment)
-- Skipping stop loss discipline
-""")
-
-# ─────────────────────────────────────────────────────────────────────────────
-# TAB 10  IV SCANNER  ── multi-expiration mispricing scan with chart + tables
-# ─────────────────────────────────────────────────────────────────────────────
-with tab10:
-    st.markdown("### 📊 IV Surface Scanner")
-    st.caption("Finds options pricing rich or cheap vs the fitted volatility smile, across every expiration in your window.")
-
-    # ── Controls ──────────────────────────────────────────────────────────────
-    c1, c2, c3 = st.columns([2, 1, 1])
-    with c1:
-        iv_sym = st.text_input(
-            "Symbol",
-            value=st.session_state.get('selected_ticker', '') or 'SPY',
-            key='iv_scanner_sym',
-        ).upper().strip()
-    with c2:
-        opt_type = st.radio("Type", ["calls", "puts"], horizontal=True, key='iv_scanner_type')
-    with c3:
-        direction = st.radio("Mode", ["Buy (cheap)", "Sell (rich)"], horizontal=True, key='iv_scanner_dir')
-
-    c4, c5, c6, c7 = st.columns(4)
-    with c4:
-        dte_range = st.slider("Days to Expiry", 1, 120, (7, 60), key='iv_scanner_dte')
-    with c5:
-        min_oi = st.number_input("Min Open Interest", min_value=0, value=10, step=10, key='iv_scanner_oi')
-    with c6:
-        min_vol = st.number_input("Min Volume", min_value=0, value=0, step=10, key='iv_scanner_vol')
-    with c7:
-        delta_range = st.slider("|Delta| Range", 0.05, 0.95, (0.10, 0.75), step=0.05, key='iv_scanner_delta')
-
-    scan_btn = st.button("🔍 Scan", type='primary', use_container_width=False, key='iv_scanner_btn')
-
-    if scan_btn and iv_sym:
-        with st.spinner(f"Scanning {iv_sym} {opt_type} across expirations…"):
-            scan = scan_iv_surface(
-                iv_sym,
-                dte_min=dte_range[0],
-                dte_max=dte_range[1],
-                opt_type=opt_type,
-                min_oi=int(min_oi),
-                min_vol=int(min_vol),
-                delta_min=delta_range[0],
-                delta_max=delta_range[1],
-            )
-        st.session_state['iv_scan_result'] = scan
-        st.session_state['iv_scan_meta'] = {'direction': direction, 'symbol': iv_sym}
-
-    scan = st.session_state.get('iv_scan_result')
-    meta = st.session_state.get('iv_scan_meta', {})
-
-    if scan and scan.get("available"):
-        st.success(f"Found {len(scan['expirations'])} expirations. Spot: ${scan['spot']:.2f}")
-
-        # ── Expiry selector ───────────────────────────────────────────────────
-        sel_exp = st.selectbox("Expiration to chart", scan['expirations'], key='iv_scanner_exp')
-        ex_data = scan['per_expiry'][sel_exp]
-
-        # ── Chart ─────────────────────────────────────────────────────────────
-        is_buy = (meta.get('direction', '').startswith('Buy'))
-        # In Buy mode: green = cheap (residual < 0), red = rich
-        # In Sell mode: green = rich (residual > 0), red = cheap
-        if is_buy:
-            colors = ['#2ecc71' if r < -1 else '#e74c3c' if r > 3 else '#888888' for r in ex_data['residuals_pp']]
-        else:
-            colors = ['#2ecc71' if r > 3 else '#e74c3c' if r < -3 else '#888888' for r in ex_data['residuals_pp']]
-        sizes = [14 if abs(r) >= 3 else 8 for r in ex_data['residuals_pp']]
-
-        fig = go.Figure()
-        # fitted smile (dashed line)
-        fig.add_trace(go.Scatter(
-            x=ex_data['strikes'], y=ex_data['fitted'] * 100,
-            mode='lines', line=dict(color='#8b92a8', dash='dash', width=2),
-            name='Fitted smile',
-        ))
-        # actual IVs (dots)
-        hover = [
-            f"Strike ${s:.2f}<br>IV {iv*100:.1f}%<br>Residual {r:+.1f} PP<br>Delta {d:.2f}<br>OI {oi:,}"
-            for s, iv, r, d, oi in zip(
-                ex_data['strikes'], ex_data['ivs'], ex_data['residuals_pp'],
-                ex_data['df']['delta'].values, ex_data['df']['oi'].values,
-            )
-        ]
-        fig.add_trace(go.Scatter(
-            x=ex_data['strikes'], y=ex_data['ivs'] * 100,
-            mode='markers',
-            marker=dict(color=colors, size=sizes, line=dict(color='#0e1117', width=1)),
-            text=hover, hoverinfo='text',
-            name=opt_type.capitalize(),
-        ))
-        # spot vertical line
-        fig.add_vline(x=scan['spot'], line=dict(color='#f39c12', width=1, dash='dot'),
-                      annotation_text=f"Spot ${scan['spot']:.2f}", annotation_position="top")
-        fig.update_layout(
-            title=f"{scan['symbol']} {opt_type} · {sel_exp} ({ex_data['dte']} DTE)",
-            xaxis_title="Strike", yaxis_title="Implied Volatility (%)",
-            template='plotly_dark', height=460,
-            paper_bgcolor='#0e1117', plot_bgcolor='#161b22',
-            font=dict(color='#c9d1d9'),
-            margin=dict(l=40, r=20, t=50, b=40),
-        )
-        st.plotly_chart(fig, use_container_width=True)
-
-        # ── Chain table for selected expiry ───────────────────────────────────
-        st.markdown(f"#### Chain — {sel_exp}")
-        chain_df = ex_data['df'].copy()
-        # Reorder + rename
-        chain_df = chain_df[[
-            'strike', 'bid', 'ask', 'mid', 'iv_pct', 'fitted_iv_pct',
-            'residual_pp', 'delta', 'oi', 'volume', 'spread_pp',
-            'spread_warn', 'oi_warn',
-        ]].rename(columns={
-            'iv_pct': 'IV %',
-            'fitted_iv_pct': 'Fitted %',
-            'residual_pp': 'IV+PP',
-            'delta': 'Δ',
-            'oi': 'OI',
-            'volume': 'Vol',
-            'spread_pp': 'Spread %',
-        })
-
-        def _style_chain(row):
-            styles = [''] * len(row)
-            # Row shading by IV+PP
-            r = row['IV+PP']
-            if is_buy:
-                if r < -3:   bg = 'background-color: rgba(46,204,113,0.15)'
-                elif r > 3:  bg = 'background-color: rgba(231,76,60,0.10)'
-                else:        bg = ''
-            else:
-                if r > 3:    bg = 'background-color: rgba(46,204,113,0.15)'
-                elif r < -3: bg = 'background-color: rgba(231,76,60,0.10)'
-                else:        bg = ''
-            for i in range(len(row)):
-                styles[i] = bg
-            # Yellow on bid/ask/OI/Vol if warned
-            if row['spread_warn']:
-                bi = list(row.index).index('bid')
-                ai = list(row.index).index('ask')
-                styles[bi] += '; background-color: rgba(241,196,15,0.30)'
-                styles[ai] += '; background-color: rgba(241,196,15,0.30)'
-            if row['oi_warn']:
-                oi_i = list(row.index).index('OI')
-                styles[oi_i] += '; background-color: rgba(241,196,15,0.30)'
-            return styles
-
-        styled = chain_df.style.apply(_style_chain, axis=1).format({
-            'strike': '${:.2f}', 'bid': '${:.2f}', 'ask': '${:.2f}', 'mid': '${:.2f}',
-            'IV %': '{:.1f}%', 'Fitted %': '{:.1f}%', 'IV+PP': '{:+.1f}',
-            'Δ': '{:.2f}', 'OI': '{:,}', 'Vol': '{:,}', 'Spread %': '{:.1f}%',
-        })
-        # Hide warn cols from display
-        st.dataframe(
-            styled.hide(axis="columns", subset=['spread_warn', 'oi_warn']),
-            use_container_width=True, height=320,
-        )
-
-        # ── Top candidates across all expirations ─────────────────────────────
-        st.markdown(f"#### Top {'Cheapest' if is_buy else 'Richest'} Across All Expirations")
-        tc = scan['top_candidates'].copy()
-        if not is_buy:
-            # Sort by residual_pp descending (richest first) for sell mode
-            tc = tc.sort_values('residual_pp', ascending=False).head(10)
-        tc_disp = tc.rename(columns={
-            'expiry': 'Expiry', 'dte': 'DTE', 'strike': 'Strike', 'mid': 'Mid',
-            'iv_pct': 'IV %', 'residual_pp': 'IV+PP', 'delta': 'Δ',
-            'oi': 'OI', 'volume': 'Vol', 'spread_pp': 'Spread %',
-        })
-        st.dataframe(
-            tc_disp[['Expiry','DTE','Strike','Mid','IV %','IV+PP','Δ','OI','Vol','Spread %']]
-                .style.format({
-                    'Strike': '${:.2f}', 'Mid': '${:.2f}',
-                    'IV %': '{:.1f}%', 'IV+PP': '{:+.1f}',
-                    'Δ': '{:.2f}', 'OI': '{:,}', 'Vol': '{:,}', 'Spread %': '{:.1f}%',
-                }),
-            use_container_width=True, height=380,
-        )
-
-        st.caption(
-            "**IV+PP** = actual IV minus fitted-smile IV, in percentage points. "
-            "Negative = cheap relative to its neighbors (buy candidate). "
-            "Positive = rich relative to its neighbors (sell candidate). "
-            "Yellow cells flag wide bid/ask spreads or thin open interest. "
-            "Yahoo Finance IV is sometimes stale — verify on your broker before trading."
-        )
-    elif scan is not None:
-        st.warning(
-            f"No usable surface for **{meta.get('symbol','')}**. "
-            "Try widening the DTE range, lowering Min OI, or pick a more-liquid symbol."
-        )
-    else:
-        st.info("Pick a symbol and hit **Scan** to fit the IV surface across expirations.")
-
-# ─────────────────────────────────────────────────────────────────────────────
-# TAB 11  ENTRY WIZARD  ── decision gate before clicking buy on Webull
-# ─────────────────────────────────────────────────────────────────────────────
-with tab11:
-    st.markdown("### 🚦 Should I Enter This Trade?")
-    st.caption(
-        "Pre-flight check before you hit buy on Webull. Pulls in your daily P&L, "
-        "the three-strike rule, time-of-day filter, IV rank, spread quality, "
-        "earnings risk, and position sizing — then gives you ONE verdict."
-    )
-
-    # ── Inputs ────────────────────────────────────────────────────────────────
-    wc1, wc2, wc3 = st.columns([2, 1, 1])
-    with wc1:
-        w_sym = st.text_input(
-            "Ticker",
-            value=st.session_state.get('selected_ticker', '') or '',
-            key='wizard_sym',
-        ).upper().strip()
-    with wc2:
-        w_dir = st.radio("Direction", ["CALL", "PUT"], horizontal=True, key='wizard_dir')
-    with wc3:
-        w_strat = st.text_input("Strategy #", value="", placeholder="e.g. 163", key='wizard_strat')
-
-    wc4, wc5, wc6 = st.columns(3)
-    with wc4:
-        w_strike  = st.number_input("Strike ($)", min_value=0.0, value=0.0, step=0.5, key='wizard_strike')
-    with wc5:
-        w_premium = st.number_input("Est. Premium ($/contract)", min_value=0.0, value=0.0, step=0.05, key='wizard_premium')
-    with wc6:
-        w_exp     = st.date_input("Expiry", value=date.today(), key='wizard_exp')
-
-    # ── Required-confirmation checkboxes ──────────────────────────────────────
-    st.markdown("**Required confirmations** — check each before running the gate:")
-    rcc1, rcc2 = st.columns(2)
-    with rcc1:
-        cb_stop   = st.checkbox("Stop-loss defined at −50% premium", key='wizard_cb_stop')
-        cb_target = st.checkbox("Target defined (+25% or +50%)",     key='wizard_cb_target')
-        cb_time   = st.checkbox("Time-exit defined (e.g. by 3:30 PM ET)", key='wizard_cb_time')
-    with rcc2:
-        cb_grade  = st.checkbox("Catalyst Grader is A or A+ for this ticker", key='wizard_cb_grade')
-        cb_one    = st.checkbox("This is my ONE trade today",        key='wizard_cb_one')
-        cb_size   = st.checkbox("Total cost fits in $80 max position", key='wizard_cb_size')
-
-    run_wizard = st.button("🚦 Run Entry Check", type='primary', key='wizard_run')
-
-    if run_wizard and w_sym:
-        with st.spinner(f"Running pre-flight checks for {w_sym}..."):
-
-            # ── Gather signals from existing helpers ──────────────────────────
-            iv     = get_iv_rank(w_sym)
-            earn   = get_earnings_date(w_sym)
-            opts   = get_options_snapshot(w_sym)
-
-            # ── Position cost & risk math ─────────────────────────────────────
-            contract_cost = w_premium * 100 if w_premium > 0 else 0
-            stop_loss     = contract_cost * 0.50
-            target_25     = contract_cost * 0.25
-            target_50     = contract_cost * 0.50
-
-            # Days to expiration
-            dte = max((w_exp - date.today()).days, 0)
-
-            # Current Eastern time (approx — server-local; user verifies)
-            now_et = datetime.now()
-            hr, mn = now_et.hour, now_et.minute
-            mins_since_open = (hr - 9) * 60 + (mn - 30)   # 9:30 ET open
-            # Death zones: first 5 min (0–5), midday (12:00–13:30 ET = 150-240 min)
-            in_first_5    = 0 <= mins_since_open < 5
-            in_midday     = 150 <= mins_since_open < 240
-            in_death_zone = in_first_5 or in_midday
-            after_330     = mins_since_open >= 360  # 3:30 PM
-
-            # Find ATM spread quality from options snapshot
-            spread_pct = None
-            oi_at_strike = None
-            if opts.get("available"):
-                rows = opts['calls'] if w_dir == 'CALL' else opts['puts']
-                if rows and w_strike > 0:
-                    closest = min(rows, key=lambda r: abs(r['strike'] - w_strike))
-                    spread_pct  = closest['spread_pct']
-                    oi_at_strike = closest['oi']
-
-            # ── HARD BLOCKERS ─────────────────────────────────────────────────
-            blockers = []
-            if st.session_state.daily_pnl <= -50:
-                blockers.append(("Daily loss limit hit", f"P&L is ${st.session_state.daily_pnl:.0f} — already at −$50 cap"))
-            if st.session_state.daily_reds >= 3:
-                blockers.append(("Three-strike rule", f"{st.session_state.daily_reds} red trades today — stop"))
-            if contract_cost > 80:
-                blockers.append(("Position too large", f"${contract_cost:.0f} exceeds $80 max per trade"))
-            if in_death_zone:
-                z = "first 5 min (no opening range)" if in_first_5 else "midday chop (12:00–1:30 PM ET)"
-                blockers.append(("Death zone", f"It's the {z} — wait it out"))
-            if not all([cb_stop, cb_target, cb_time, cb_grade, cb_one, cb_size]):
-                missing = sum(1 for c in [cb_stop, cb_target, cb_time, cb_grade, cb_one, cb_size] if not c)
-                blockers.append(("Missing confirmations", f"{missing} required checkbox(es) unchecked"))
-
-            # ── WARNINGS ──────────────────────────────────────────────────────
-            warnings = []
-            if earn.get("available") and earn.get("days") is not None and earn['days'] <= 5 and w_dir == 'CALL':
-                warnings.append(("Earnings within 5 days", f"IV crush risk — earnings in {earn['days']}d"))
-            if iv.get("available") and iv.get("rank", 0) > 80:
-                warnings.append(("IV Rank > 80", f"Paying peak vol (rank {iv['rank']:.0f})"))
-            if spread_pct is not None and spread_pct > 15:
-                warnings.append(("Wide spread", f"Bid/ask spread is {spread_pct:.0f}% of mid — execution risk"))
-            if dte <= 1:
-                warnings.append(("0–1 DTE", "Same-day expiry — gamma risk is extreme"))
-            if after_330:
-                warnings.append(("After 3:30 PM ET", "Time decay accelerates into close"))
-
-            # ── SOFT WARNINGS ─────────────────────────────────────────────────
-            soft = []
-            if spread_pct is not None and 10 < spread_pct <= 15:
-                soft.append(f"Spread is {spread_pct:.0f}% of mid (10–15% range)")
-            if iv.get("available") and 60 <= iv.get("rank", 0) <= 80:
-                soft.append(f"IV rank {iv['rank']:.0f} (60–80 range)")
-            if oi_at_strike is not None and oi_at_strike < 200:
-                soft.append(f"Open interest only {oi_at_strike} at ${w_strike:.0f} strike (target: >200)")
-
-            # ── Verdict ───────────────────────────────────────────────────────
-            if blockers:
-                verdict_color = "#e74c3c"
-                verdict_text  = "🔴 SKIP"
-                verdict_sub   = f"{len(blockers)} hard blocker(s) — DO NOT enter this trade"
-            elif len(warnings) >= 2:
-                verdict_color = "#f39c12"
-                verdict_text  = "🟡 WAIT"
-                verdict_sub   = f"{len(warnings)} strong warnings — improve setup before entering"
-            elif warnings:
-                verdict_color = "#f39c12"
-                verdict_text  = "🟡 WAIT"
-                verdict_sub   = "1 warning — consider waiting for cleaner setup"
-            else:
-                verdict_color = "#2ecc71"
-                verdict_text  = "🟢 ENTER"
-                verdict_sub   = "All critical checks passed — execute your plan"
-
-            # ── Big verdict box ───────────────────────────────────────────────
-            st.markdown(
-                f"""
-                <div style='background:{verdict_color}; padding:24px; border-radius:12px;
-                            margin:16px 0; text-align:center; box-shadow:0 4px 18px rgba(0,0,0,0.4);'>
-                    <h1 style='color:white; margin:0; font-size:48px;'>{verdict_text}</h1>
-                    <p style='color:white; margin:8px 0 0 0; font-size:16px; opacity:0.95;'>
-                        {verdict_sub}
-                    </p>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-            # ── Position summary ──────────────────────────────────────────────
-            if w_premium > 0:
-                pcc1, pcc2, pcc3, pcc4 = st.columns(4)
-                pcc1.metric("Cost (1 ct)",  f"${contract_cost:.0f}")
-                pcc2.metric("Risk at −50%", f"${stop_loss:.0f}")
-                pcc3.metric("Target +25%",  f"+${target_25:.0f}")
-                pcc4.metric("Target +50%",  f"+${target_50:.0f}")
-
-            # ── Hard blockers detail ──────────────────────────────────────────
-            with st.expander(f"🛑 Hard Blockers ({len(blockers)})", expanded=bool(blockers)):
-                if blockers:
-                    for name, why in blockers:
-                        st.markdown(f"- ❌ **{name}** — {why}")
-                else:
-                    st.markdown("- ✅ Daily P&L OK  \n- ✅ Three-strike rule OK  \n- ✅ Position size OK  \n- ✅ Not in death zone  \n- ✅ All confirmations checked")
-
-            # ── Warnings detail ───────────────────────────────────────────────
-            with st.expander(f"⚠️ Strong Warnings ({len(warnings)})", expanded=bool(warnings)):
-                if warnings:
-                    for name, why in warnings:
-                        st.markdown(f"- ⚠️ **{name}** — {why}")
-                else:
-                    st.markdown("No strong warnings — setup looks clean on the macro filters.")
-
-            # ── Soft warnings ─────────────────────────────────────────────────
-            if soft:
-                with st.expander(f"💡 Soft Warnings ({len(soft)})"):
-                    for s in soft:
-                        st.markdown(f"- 💡 {s}")
-
-            # ── Context dump (what the wizard saw) ────────────────────────────
-            with st.expander("🔎 What the wizard saw"):
-                cdc1, cdc2 = st.columns(2)
-                with cdc1:
-                    st.markdown("**Account state**")
-                    st.markdown(f"- Daily P&L: **${st.session_state.daily_pnl:.2f}** (of −$50 cap)")
-                    st.markdown(f"- Red trades today: **{st.session_state.daily_reds}** (of 3 max)")
-                    st.markdown(f"- Time: **{now_et.strftime('%I:%M %p')}** server-local")
-                    st.markdown(f"- Minutes since open: **{mins_since_open}**")
-                with cdc2:
-                    st.markdown("**Trade signals**")
-                    st.markdown(f"- IV Rank: **{iv.get('rank','—')}**" + (f" ({iv.get('label','')})" if iv.get('available') else " (not available)"))
-                    st.markdown(f"- Earnings in: **{earn.get('days','—')}d**" + (f" ({earn.get('date_str','')})" if earn.get('available') else " (not available)"))
-                    st.markdown(f"- Spread @ ${w_strike:.0f}: **{spread_pct if spread_pct is not None else '—'}%**")
-                    st.markdown(f"- OI @ ${w_strike:.0f}: **{oi_at_strike if oi_at_strike is not None else '—'}**")
-                    st.markdown(f"- Days to expiry: **{dte}**")
-
-# ── Sidebar ───────────────────────────────────────────────────────────────────
+# ── Render each tab via its module ───────────────────────────────────────────
+tab_scanner.render(tab1,
+    snapshots=snapshots, btc_price=btc_price, _watchlist=_watchlist,
+    last_updated=last_updated, scan_momentum_universe=scan_momentum_universe,
+    get_squeeze_score=get_squeeze_score, get_news=get_news,
+    get_intraday_sector_flow=get_intraday_sector_flow,
+    get_rs_vs_spy=get_rs_vs_spy, send_ntfy=send_ntfy,
+    scan_premarket_gaps=scan_premarket_gaps, run_scanner=run_scanner,
+)
+
+tab_tickers.render(tab2,
+    snapshots=snapshots, _watchlist=_watchlist, last_updated=last_updated,
+    get_signal_strength=get_signal_strength, get_earnings_date=get_earnings_date,
+    get_options_snapshot=get_options_snapshot, get_iv_rank=get_iv_rank,
+    get_rs_vs_spy=get_rs_vs_spy, get_squeeze_score=get_squeeze_score,
+    get_max_pain=get_max_pain, get_best_buy_strike=get_best_buy_strike,
+    get_volume_spike=get_volume_spike, get_rvol=get_rvol,
+)
+
+tab_trades.render(tab3, ALL_STRATEGIES=ALL_STRATEGIES)
+
+tab_performance.render(tab4)
+
+tab_journal.render(tab5,
+    ALL_STRATEGIES=ALL_STRATEGIES, TRADE_FIELDS=TRADE_FIELDS,
+    save_trade=save_trade, load_trades=load_trades,
+)
+
+tab_market.render(tab6,
+    get_regime_data=get_regime_data, get_sector_data=get_sector_data,
+    get_intraday_sector_flow=get_intraday_sector_flow,
+)
+
+tab_catalyst.render(tab7,
+    get_snapshot=get_snapshot, get_max_pain=get_max_pain,
+    get_rs_vs_spy=get_rs_vs_spy, get_iv_rank=get_iv_rank,
+)
+
+tab_options.render(tab8,
+    get_max_pain=get_max_pain, get_iv_rank=get_iv_rank,
+    get_xsp_data=get_xsp_data,
+)
+
+tab_coach.render(tab9,
+    save_tendency=save_tendency, load_tendencies=load_tendencies,
+)
+
+tab_ivscan.render(tab10, scan_iv_surface=scan_iv_surface)
+
+tab_wizard.render(tab11,
+    get_iv_rank=get_iv_rank, get_earnings_date=get_earnings_date,
+    get_options_snapshot=get_options_snapshot,
+)
+
+# ── Sidebar ──────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## ⚙️ Settings")
 
-    # ── Simple / Pro Mode Toggle ──────────────────────────────────────────────
     st.markdown("### 👁️ View Mode")
     _mode_choice = st.radio(
         "Choose your view:",
         ["🟢 Simple", "🔬 Pro"],
         index=0 if st.session_state.get('view_mode', 'Simple') == 'Simple' else 1,
-        horizontal=True,
-        key="mode_radio",
+        horizontal=True, key="mode_radio",
         help="Simple = clean signal card. Pro = all 5 insider layers.",
     )
     st.session_state['view_mode'] = 'Simple' if _mode_choice == '🟢 Simple' else 'Pro'
-    _simple = st.session_state['view_mode'] == 'Simple'
-    if _simple:
+    if st.session_state['view_mode'] == 'Simple':
         st.caption("📱 Simple Mode — clean cards, perfect for mobile. One score tells the story.")
     else:
         st.caption("🔬 Pro Mode — all 5 insider layers visible. For when you want the full picture.")
 
     st.markdown("---")
-    # ── Auto-Refresh ──────────────────────────────────────────────────────────
     st.markdown("### 🔄 Auto-Refresh")
-    _ar_on = st.toggle(
-        "Refresh every 60 seconds",
-        value=st.session_state.get('auto_refresh', True),
-        key="auto_refresh_toggle",
-        help="Keeps prices, alerts, and signals current while the tab is open.",
-    )
+    _ar_on = st.toggle("Refresh every 60 seconds",
+                        value=st.session_state.get('auto_refresh', True),
+                        key="auto_refresh_toggle",
+                        help="Keeps prices, alerts, and signals current while the tab is open.")
     st.session_state['auto_refresh'] = _ar_on
-    if _ar_on:
-        st.caption("🟢 Live — updating every 60s")
-    else:
-        st.caption("⏸ Paused — hit ⌘R / F5 to refresh manually")
+    st.caption("🟢 Live — updating every 60s" if _ar_on else "⏸ Paused — hit ⌘R / F5 to refresh manually")
 
     st.markdown("---")
-    # ── Account Balance ───────────────────────────────────────────────────────
     st.markdown("### 💰 Starting Balance")
     st.caption("Set your actual Webull starting balance. The dashboard adds/subtracts trade P/L automatically.")
     new_start = st.number_input("Starting balance ($)", value=250.0, min_value=1.0, step=1.0, key="start_bal_input")
     if st.button("✅ Set Balance", key="set_bal_btn"):
-        # Patch the module-level constant so recalc picks it up on next rerun
         st.session_state['_starting_balance_override'] = new_start
         st.rerun()
 
@@ -2742,7 +680,6 @@ with st.sidebar:
     st.metric("Current Balance", f"${live_bal:.2f}", delta=f"${_total_pnl:+.2f} all-time P/L")
 
     st.markdown("---")
-    # ── Watchlist ─────────────────────────────────────────────────────────────
     st.markdown("### 📋 Today's Watchlist")
     st.caption("Add tickers from your screener. Only stocks that meet your criteria.")
 
@@ -2771,24 +708,19 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("### 📲 Push Notifications (ntfy.sh)")
     st.caption("Get iPhone alerts when signals fire. Free — no account needed.")
-    _ntfy_input = st.text_input(
-        "ntfy.sh topic",
+    _ntfy_input = st.text_input("ntfy.sh topic",
         value=st.session_state.get('ntfy_topic', ''),
-        placeholder="e.g. scalper_mel_2025",
-        key="ntfy_input",
-        help="Pick any unique name. Install ntfy app on iPhone → subscribe to same topic."
-    )
+        placeholder="e.g. scalper_mel_2025", key="ntfy_input",
+        help="Pick any unique name. Install ntfy app on iPhone → subscribe to same topic.")
     if st.button("💾 Save Topic", key="save_ntfy"):
         st.session_state['ntfy_topic'] = _ntfy_input.strip()
         st.success(f"Topic saved: {_ntfy_input.strip()}")
     if st.session_state.get('ntfy_topic'):
         if st.button("🔔 Test Notification", key="test_ntfy"):
-            send_ntfy(
-                st.session_state['ntfy_topic'],
-                "🌙 Scalper Dashboard Test",
-                "Push notifications are working! You'll get alerts when signals fire.",
-                priority="default"
-            )
+            send_ntfy(st.session_state['ntfy_topic'],
+                      "🌙 Scalper Dashboard Test",
+                      "Push notifications are working! You'll get alerts when signals fire.",
+                      priority="default")
             st.success("Test sent — check your phone!")
         st.caption(f"Active: ntfy.sh/**{st.session_state['ntfy_topic']}**")
     else:
@@ -2801,28 +733,21 @@ with st.sidebar:
         </small>""", unsafe_allow_html=True)
 
     st.markdown("---")
-    # ── Price Alerts ──────────────────────────────────────────────────────────
     st.markdown("### 🔔 Price Alerts")
     st.caption("Triggers on each page refresh. Sends push + on-screen toast.")
-
     _al_c1, _al_c2 = st.columns([1, 1])
     with _al_c1:
-        _new_tick  = st.text_input("Ticker", placeholder="ONDS",
-                                   key="al_tick_input").upper().strip()
+        _new_tick  = st.text_input("Ticker", placeholder="ONDS", key="al_tick_input").upper().strip()
     with _al_c2:
-        _new_price = st.number_input("Target $", min_value=0.01, step=0.25,
-                                     format="%.2f", key="al_price_input")
+        _new_price = st.number_input("Target $", min_value=0.01, step=0.25, format="%.2f", key="al_price_input")
     _new_dir = st.radio("Trigger when price is:", ["▲ Above target", "▼ Below target"],
                         horizontal=True, key="al_dir_radio")
-
     if st.button("➕ Add Alert", key="add_alert_btn"):
         if _new_tick and _new_price > 0:
             _new_al = {
-                "ticker":    _new_tick,
-                "target":    round(_new_price, 2),
+                "ticker": _new_tick, "target": round(_new_price, 2),
                 "direction": "above" if "Above" in _new_dir else "below",
-                "created":   date.today().isoformat(),
-                "triggered": False,
+                "created": date.today().isoformat(), "triggered": False,
             }
             _cur_alerts = st.session_state.get('price_alerts', [])
             _cur_alerts.append(_new_al)
@@ -2833,7 +758,6 @@ with st.sidebar:
         else:
             st.warning("Enter a ticker and target price.")
 
-    # Display active + triggered alerts
     _all_alerts  = st.session_state.get('price_alerts', [])
     _active_als  = [a for a in _all_alerts if not a.get('triggered')]
     _done_als    = [a for a in _all_alerts if a.get('triggered')]
@@ -2844,11 +768,7 @@ with st.sidebar:
             _arrow = "▲" if _a['direction'] == 'above' else "▼"
             _rc1, _rc2 = st.columns([4, 1])
             with _rc1:
-                st.markdown(
-                    f"<small>🔔 <strong>{_a['ticker']}</strong> "
-                    f"{_arrow} <strong>${float(_a['target']):.2f}</strong></small>",
-                    unsafe_allow_html=True,
-                )
+                st.markdown(f"<small>🔔 <strong>{_a['ticker']}</strong> {_arrow} <strong>${float(_a['target']):.2f}</strong></small>", unsafe_allow_html=True)
             with _rc2:
                 if st.button("✕", key=f"del_al_{_ai}", help="Remove alert"):
                     _all_alerts = [x for x in _all_alerts if x is not _a]
@@ -2911,9 +831,9 @@ with st.sidebar:
             st.markdown(guide_path.read_text())
 
     st.markdown("---")
-    st.markdown("*Dashboard v3.0 | $250 | Options Only*")
+    st.markdown("*Dashboard v3.1 | $250 | Options Only*")
 
-# ── Footer ────────────────────────────────────────────────────────────────────
+# ── Footer ───────────────────────────────────────────────────────────────────
 st.markdown("---")
 st.markdown("""
 <div style="text-align:center; color:#8b92a8;">
