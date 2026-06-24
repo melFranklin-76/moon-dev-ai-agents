@@ -104,7 +104,7 @@ def _render_directional(get_max_pain, get_iv_rank):
                                      margin=dict(l=10, r=10, t=10, b=30),
                                      xaxis_title="Strike", yaxis_title="Total Pain ($)",
                                      showlegend=False)
-                st.plotly_chart(fig_mp, use_container_width=True)
+                st.plotly_chart(fig_mp, width="stretch")
                 st.caption(f"Red bar = max pain strike. Green dashed = current price. "
                            f"Price is pulled toward the red bar as {mp_p['expiry']} approaches.")
 
@@ -208,7 +208,7 @@ def _render_simulator(d_price, d_prem, d_side, strike):
 
     st.dataframe(
         _df_sim.drop(columns=["_pnl"]).style.apply(_color_row, axis=1),
-        use_container_width=True, hide_index=True,
+        width="stretch", hide_index=True,
     )
 
     _be_move = (_K + _prem - _S0) / _S0 * 100 if _is_call else (_S0 - _K - _prem) / _S0 * -100
@@ -238,7 +238,7 @@ def _render_simulator(d_price, d_prem, d_side, strike):
             "Option Value":   f"${_opt_td:.2f}",
             "P&L":            f"${_pnl_td:+.2f}",
         })
-    st.dataframe(pd.DataFrame(_decay_rows), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(_decay_rows), width="stretch", hide_index=True)
 
 
 def _render_xsp(get_xsp_data):

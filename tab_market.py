@@ -96,7 +96,7 @@ def render(tab, *, get_regime_data, get_sector_data, get_intraday_sector_flow):
                 xaxis_title="Sector", yaxis_title="RS vs SPY (30 min) %",
                 showlegend=False,
             )
-            st.plotly_chart(fig_flow, use_container_width=True)
+            st.plotly_chart(fig_flow, width="stretch")
 
             flow_cols = st.columns(5)
             for i, r in enumerate(flow[:5]):

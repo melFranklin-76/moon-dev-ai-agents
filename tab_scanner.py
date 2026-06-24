@@ -26,7 +26,7 @@ def render(tab, *, snapshots, btc_price, _watchlist, last_updated,
             )
 
         scan_col, info_col = st.columns([1, 3])
-        run_scan = scan_col.button("🚀 Scan Universe Now", type="primary", use_container_width=True)
+        run_scan = scan_col.button("🚀 Scan Universe Now", type="primary", width="stretch")
         info_col.caption("Takes ~20–30 seconds. Results cached 5 min. Checks ALL Yahoo Finance movers — nothing slips through.")
 
         if run_scan:

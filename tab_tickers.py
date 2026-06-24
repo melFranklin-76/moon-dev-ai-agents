@@ -56,18 +56,14 @@ def _render_simple_card(sym, snap, color, icon, vwap, price, vwap_label,
     earn = get_earnings_date(sym)
     rvol = get_rvol(sym)
     sig_bg = f"{ss['color']}22"
-    d    = ss.get('detail', {})
-    rs_d  = d.get('rs',  {'color': '#8b92a8', 'note': '—'})
-    iv_d  = d.get('iv',  {'color': '#8b92a8', 'note': '—'})
-    mp_d  = d.get('mp',  {'color': '#8b92a8', 'note': '—'})
-    sq_d  = d.get('sq',  {'color': '#8b92a8', 'note': '—'})
-    liq_d = d.get('liq', {'note': '—'})
+    d = ss.get('detail', {})
+    _na = {'color': '#8b92a8', 'note': '—'}
     layers_html = "".join([
-        f"<span style='color:{rs_d['color']};'>RS {rs_d['note']}</span> &nbsp;·&nbsp; ",
-        f"<span style='color:{iv_d['color']};'>IV {iv_d['note']}</span> &nbsp;·&nbsp; ",
-        f"<span style='color:{mp_d['color']};'>{mp_d['note']}</span><br>",
-        f"<span style='color:{sq_d['color']};'>Squeeze {sq_d['note']}</span> &nbsp;·&nbsp; ",
-        f"<span style='color:#8b92a8;'>Liq {liq_d['note']}</span>",
+        f"<span style='color:{d.get('rs', _na)['color']};'>RS {d.get('rs', _na)['note']}</span> &nbsp;·&nbsp; ",
+        f"<span style='color:{d.get('iv', _na)['color']};'>IV {d.get('iv', _na)['note']}</span> &nbsp;·&nbsp; ",
+        f"<span style='color:{d.get('mp', _na)['color']};'>{d.get('mp', _na)['note']}</span><br>",
+        f"<span style='color:{d.get('sq', _na)['color']};'>Squeeze {d.get('sq', _na)['note']}</span> &nbsp;·&nbsp; ",
+        f"<span style='color:#8b92a8;'>Liq {d.get('liq', _na)['note']}</span>",
     ])
     vwap_color = "#2ecc71" if price > vwap and vwap > 0 else "#e74c3c" if vwap > 0 else "#8b92a8"
 

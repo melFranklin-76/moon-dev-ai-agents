@@ -42,7 +42,7 @@ def render(tab):
                 fig.update_layout(template='plotly_dark', height=300,
                                   margin=dict(l=20, r=20, t=20, b=20),
                                   xaxis_title="Date", yaxis_title="Account Value ($)")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
             else:
                 st.info("Log trades to see your equity curve.")
 
@@ -100,7 +100,7 @@ def render(tab):
                 fig_s.update_layout(template='plotly_dark', height=280,
                                     margin=dict(l=10,r=30,t=10,b=10),
                                     xaxis=dict(range=[0, 110], title="Win %"))
-                st.plotly_chart(fig_s, use_container_width=True)
+                st.plotly_chart(fig_s, width="stretch")
 
             with ana_col2:
                 st.markdown("**Win Rate by Day**")
@@ -119,7 +119,7 @@ def render(tab):
                 fig_d.update_layout(template='plotly_dark', height=280,
                                     margin=dict(l=10,r=10,t=10,b=10),
                                     yaxis=dict(range=[0, 110], title="Win %"))
-                st.plotly_chart(fig_d, use_container_width=True)
+                st.plotly_chart(fig_d, width="stretch")
 
             with ana_col3:
                 st.markdown("**P&L Distribution**")
@@ -132,6 +132,6 @@ def render(tab):
                 fig_p.update_layout(template='plotly_dark', height=280,
                                     margin=dict(l=10,r=10,t=10,b=10),
                                     xaxis_title="P&L ($)", yaxis_title="# trades")
-                st.plotly_chart(fig_p, use_container_width=True)
+                st.plotly_chart(fig_p, width="stretch")
         else:
             st.info("Log at least 3 trades to unlock analytics — strategy win rates, best days, P&L distribution.")

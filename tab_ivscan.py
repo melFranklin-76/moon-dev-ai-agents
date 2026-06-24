@@ -30,7 +30,7 @@ def render(tab, *, scan_iv_surface):
         with c7:
             delta_range = st.slider("|Delta| Range", 0.05, 0.95, (0.10, 0.75), step=0.05, key='iv_scanner_delta')
 
-        scan_btn = st.button("🔍 Scan", type='primary', use_container_width=False, key='iv_scanner_btn')
+        scan_btn = st.button("🔍 Scan", type='primary', key='iv_scanner_btn')
 
         if scan_btn and iv_sym:
             with st.spinner(f"Scanning {iv_sym} {opt_type} across expirations…"):
@@ -101,7 +101,7 @@ def _render_results(scan, meta, opt_type):
         font=dict(color='#c9d1d9'),
         margin=dict(l=40, r=20, t=50, b=40),
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
     # Chain table
     st.markdown(f"#### Chain — {sel_exp}")
@@ -146,7 +146,7 @@ def _render_results(scan, meta, opt_type):
     })
     st.dataframe(
         styled.hide(axis="columns", subset=['spread_warn', 'oi_warn']),
-        use_container_width=True, height=320,
+        width="stretch", height=320,
     )
 
     # Top candidates
@@ -166,7 +166,7 @@ def _render_results(scan, meta, opt_type):
                 'IV %': '{:.1f}%', 'IV+PP': '{:+.1f}',
                 'Δ': '{:.2f}', 'OI': '{:,}', 'Vol': '{:,}', 'Spread %': '{:.1f}%',
             }),
-        use_container_width=True, height=380,
+        width="stretch", height=380,
     )
 
     st.caption(

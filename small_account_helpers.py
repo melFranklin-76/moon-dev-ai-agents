@@ -293,14 +293,25 @@ def get_news(symbol: str) -> list:
         raw = yf.Ticker(symbol).news or []
         result = []
         for item in raw[:5]:
-            ts = item.get("providerPublishTime", 0)
-            dt = datetime.utcfromtimestamp(ts).strftime('%m/%d %H:%M') if ts else ""
-            result.append({
-                "title":     item.get("title", ""),
-                "link":      item.get("link", ""),
-                "publisher": item.get("publisher", ""),
-                "time":      dt,
-            })
+            c = item.get("content", item)
+            title = c.get("title", item.get("title", ""))
+            pub_date = c.get("pubDate", "")
+            provider = c.get("provider", {})
+            publisher = provider.get("displayName", "") if isinstance(provider, dict) else item.get("publisher", "")
+            canon = c.get("canonicalUrl", {})
+            link = canon.get("url", "") if isinstance(canon, dict) else item.get("link", "")
+            if pub_date:
+                try:
+                    from datetime import timezone
+                    dt_obj = datetime.fromisoformat(pub_date.replace("Z", "+00:00"))
+                    dt = dt_obj.strftime('%m/%d %H:%M')
+                except Exception:
+                    dt = pub_date[:16]
+            else:
+                ts = item.get("providerPublishTime", 0)
+                dt = datetime.utcfromtimestamp(ts).strftime('%m/%d %H:%M') if ts else ""
+            if title:
+                result.append({"title": title, "link": link, "publisher": publisher, "time": dt})
         return result
     except Exception:
         return []

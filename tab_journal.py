@@ -79,7 +79,7 @@ def render(tab, *, ALL_STRATEGIES, TRADE_FIELDS, save_trade, load_trades):
         if st.session_state.trades:
             df_j = pd.DataFrame(st.session_state.trades)
             show = [c for c in TRADE_FIELDS if c in df_j.columns]
-            st.dataframe(df_j[show], use_container_width=True)
+            st.dataframe(df_j[show], width="stretch")
             st.download_button(
                 "📥 Export to CSV",
                 df_j.to_csv(index=False),
@@ -184,7 +184,7 @@ def _import_webull_csv(_wb_file, TRADE_FIELDS, save_trade, load_trades):
             st.dataframe(_wb_df.head(5))
         else:
             st.success(f"✅ {len(_parsed)} completed trades detected")
-            st.dataframe(pd.DataFrame(_parsed), use_container_width=True)
+            st.dataframe(pd.DataFrame(_parsed), width="stretch")
             if st.button(f"✅ Import {len(_parsed)} trades", key="wb_import_btn",
                          type="primary"):
                 for _t in _parsed:
