@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Small Account Options Scalper Dashboard v3.1
+Small Account Options Scalper Dashboard v3.2
 $250 Account | Options Only | Webull | Cash Account
 
 Tabs:
