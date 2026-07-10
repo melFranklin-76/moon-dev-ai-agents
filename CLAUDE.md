@@ -132,16 +132,22 @@ The `get_signal_strength(symbol)` function in helpers computes the composite sco
 
 ## Development Workflow
 
+Use feature branches + pull requests. Never push directly to `main`.
+
 ```bash
 # Syntax check before committing
 python3 -m py_compile small_account_dashboard.py
 python3 -m py_compile small_account_helpers.py
 
-# Commit and push
+# Work on a feature branch
+git checkout -b feature/my-change
 git add small_account_dashboard.py small_account_helpers.py
 git commit -m "description of change"
-git push origin main
+git push -u origin feature/my-change
+# Then create a PR to main for review
 ```
+
+Streamlit Community Cloud auto-deploys when PRs merge to `main`.
 
 ---
 
