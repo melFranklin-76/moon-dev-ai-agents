@@ -5,7 +5,7 @@ from datetime import datetime, date
 from pathlib import Path
 
 
-def render(tab, *, ALL_STRATEGIES, TRADE_FIELDS, save_trade, load_trades):
+def render(tab, *, ALL_STRATEGIES, TRADE_FIELDS, save_trade, load_trades, save_alerts=None):
     with tab:
         st.markdown("## 📝 TRADE JOURNAL")
         st.markdown("*Log every trade — wins and losses*")
@@ -92,6 +92,19 @@ def render(tab, *, ALL_STRATEGIES, TRADE_FIELDS, save_trade, load_trades):
                 }
                 st.session_state.trades.append(trade)
                 save_trade(trade)
+                # Auto stop-loss alert: if entry is live, set alert at -30% premium
+                if ticker_sel and entry_p > 0 and save_alerts:
+                    stop_price = round(entry_p * 0.70, 2)
+                    stop_alert = {
+                        "ticker": ticker_sel, "target": stop_price,
+                        "direction": "below", "created": date.today().isoformat(),
+                        "triggered": False,
+                    }
+                    _cur_alerts = st.session_state.get('price_alerts', [])
+                    _cur_alerts.append(stop_alert)
+                    save_alerts(_cur_alerts)
+                    st.session_state['price_alerts'] = _cur_alerts
+                    st.toast(f"Auto stop alert set: {ticker_sel} below ${stop_price:.2f} (-30%)", icon="🛑")
                 st.success(f"Trade logged! P/L: ${pnl_val:+.2f}")
                 st.rerun()
 

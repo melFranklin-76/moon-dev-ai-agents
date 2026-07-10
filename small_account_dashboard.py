@@ -402,18 +402,6 @@ def run_scanner(snapshots: dict, btc_price: float) -> list:
             signals.append(r)
     return signals
 
-def get_alpaca():
-    try:
-        import alpaca_trade_api as tradeapi
-        key    = os.getenv('ALPACA_API_KEY')
-        secret = os.getenv('ALPACA_SECRET_KEY')
-        url    = os.getenv('ALPACA_BASE_URL', 'https://paper-api.alpaca.markets')
-        if not key or not secret:
-            return None
-        return tradeapi.REST(key, secret, url, api_version='v2')
-    except Exception:
-        return None
-
 # ── Load Market Data ─────────────────────────────────────────────────────────
 _watchlist = st.session_state.get('watchlist', [])
 with st.spinner("Loading market data..."):
@@ -616,6 +604,7 @@ tab_performance.render(tab4)
 tab_journal.render(tab5,
     ALL_STRATEGIES=ALL_STRATEGIES, TRADE_FIELDS=TRADE_FIELDS,
     save_trade=save_trade, load_trades=load_trades,
+    save_alerts=save_alerts,
 )
 
 tab_market.render(tab6,
@@ -792,20 +781,6 @@ with st.sidebar:
             st.rerun()
 
     st.markdown("---")
-    st.markdown("### 🔌 Alpaca Connection")
-    api = get_alpaca()
-    if api:
-        try:
-            acct = api.get_account()
-            st.success("✅ Connected")
-            st.metric("Paper Balance", f"${float(acct.cash):,.2f}")
-        except Exception:
-            st.error("❌ Connection Failed")
-    else:
-        st.warning("⚠️ No API keys")
-        st.caption("Add ALPACA_API_KEY + ALPACA_SECRET_KEY to .env")
-
-    st.markdown("---")
     st.markdown("### ⚡ Quick Actions")
     if st.button("🔄 Refresh Data"):
         st.cache_data.clear()
@@ -818,6 +793,21 @@ with st.sidebar:
     st.markdown("**Active:** #163 · #172 · #177")
     st.markdown("**Source:** yfinance (15-min delay)")
     st.markdown(f"**Last run:** {last_updated}")
+
+    # Data-source health
+    _yf_ok = btc_price > 0 or any(s.get('price', 0) > 0 for s in snapshots.values())
+    if _yf_ok:
+        st.markdown(f"**Yahoo Finance:** <span style='color:#2ecc71;'>OK</span> — last fetch {last_updated}", unsafe_allow_html=True)
+    else:
+        st.markdown("**Yahoo Finance:** <span style='color:#e74c3c;'>NO DATA</span> — check network or Yahoo status", unsafe_allow_html=True)
+
+    # Persistence status
+    if _sheets.sheets_available():
+        st.markdown("**Storage:** <span style='color:#2ecc71;'>Google Sheets</span> — trades persist across deploys", unsafe_allow_html=True)
+    elif TRADES_FILE.exists():
+        st.markdown("**Storage:** <span style='color:#f39c12;'>Local CSV</span> — trades lost on redeploy unless you export", unsafe_allow_html=True)
+    else:
+        st.markdown("**Storage:** <span style='color:#e74c3c;'>None yet</span> — log a trade to create local CSV", unsafe_allow_html=True)
 
     st.markdown("---")
     st.markdown("### 🔗 Free Tools")
