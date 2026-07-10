@@ -85,17 +85,19 @@ The user is aware of the delay — it is acceptable for a preparation tool.
 
 ---
 
-## The 9 Tabs
+## The 11 Tabs (ordered by daily workflow)
 
-1. **Live Scanner** — #163 VWAP Reclaim, #172 Whole-Dollar, #177 BTC Sync
-2. **My Tickers** — Watchlist cards with Simple/Pro toggle
-3. **Trade Cards** — Strategy reference for strategies 159–178
-4. **Performance** — 10-day challenge, equity curve, daily goal bar
-5. **Journal** — Trade log + Webull CSV import
-6. **Market Regime** — SPY/QQQ/IWM/VIX + sectors + intraday flow
-7. **Catalyst Grader** — SMB 5-check pre-market grading
-8. **Options Planner** — Trade plan + Black-Scholes P&L simulator
-9. **Coach** — Tendencies log + pre-trade checklist
+1. **Scan** — Universe scanner, gap scanner, #163/#172/#177 setup signals
+2. **Market** — SPY/QQQ/IWM/VIX + sectors + intraday flow
+3. **Catalyst** — SMB 5-check pre-market grading
+4. **Tickers** — Watchlist cards with Simple/Pro toggle
+5. **Entry** — Pre-flight decision gate before trade entry
+6. **Options** — Trade plan + Black-Scholes P&L simulator
+7. **Journal** — Trade log + Webull CSV import + auto stop alerts
+8. **Stats** — 10-day challenge, equity curve, daily goal bar
+9. **Plays** — Strategy reference for strategies 159–178
+10. **Coach** — Tendencies log + pre-trade checklist
+11. **IV Scan** — Multi-expiration IV surface fitting
 
 ---
 

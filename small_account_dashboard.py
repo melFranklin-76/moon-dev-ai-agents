@@ -475,15 +475,16 @@ with lc2:
 st.markdown("---")
 
 # ── Top Stats Bar ────────────────────────────────────────────────────────────
-c1, c2, c3, c4, c5, c6 = st.columns(6)
 open_pos = len([t for t in st.session_state.trades if t.get('status') == 'open'])
+pnl = st.session_state.daily_pnl
+pct = (pnl / st.session_state.account_balance * 100) if st.session_state.account_balance else 0
 
-with c1: st.metric("💰 Account",    f"${st.session_state.account_balance:.2f}")
-with c2:
-    pnl = st.session_state.daily_pnl
-    pct = (pnl / st.session_state.account_balance * 100) if st.session_state.account_balance else 0
-    st.metric("📈 Today P/L", f"{'🟢' if pnl >= 0 else '🔴'} ${pnl:.2f}", f"{pct:.1f}%")
-with c3: st.metric("🎯 Challenge",  f"Day {st.session_state.current_streak}/10")
+c1, c2, c3 = st.columns(3)
+with c1: st.metric("💰 Account",   f"${st.session_state.account_balance:.2f}")
+with c2: st.metric("📈 Today P/L", f"{'🟢' if pnl >= 0 else '🔴'} ${pnl:.2f}", f"{pct:.1f}%")
+with c3: st.metric("🎯 Challenge", f"Day {st.session_state.current_streak}/10")
+
+c4, c5, c6 = st.columns(3)
 with c4: st.metric("📦 Open",       str(open_pos))
 with c5: st.metric("💵 Buying Pwr", f"${st.session_state.account_balance - open_pos * 80:.2f}")
 with c6: st.metric("₿ BTC",         f"${btc_price:,.0f}" if btc_price else "N/A")
@@ -563,19 +564,19 @@ st.markdown(f"""
 </div>""", unsafe_allow_html=True)
 st.markdown("---")
 
-# ── Tabs ─────────────────────────────────────────────────────────────────────
+# ── Tabs (ordered by daily workflow: scan → grade → trade → review) ──────────
 tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs([
-    "🎯 Live Scanner",
-    "📊 My Tickers",
-    "🎴 Trade Cards",
-    "📈 Performance",
+    "🔭 Scan",
+    "🌡️ Market",
+    "🔍 Catalyst",
+    "📊 Tickers",
+    "🚦 Entry",
+    "💰 Options",
     "📝 Journal",
-    "🌡️ Market Regime",
-    "🔍 Catalyst Grader",
-    "💰 Options Planner",
+    "📈 Stats",
+    "🎴 Plays",
     "🧠 Coach",
-    "📊 IV Scanner",
-    "🚦 Entry Wizard",
+    "📉 IV Scan",
 ])
 
 # ── Render each tab via its module ───────────────────────────────────────────
@@ -588,7 +589,17 @@ tab_scanner.render(tab1,
     scan_premarket_gaps=scan_premarket_gaps, run_scanner=run_scanner,
 )
 
-tab_tickers.render(tab2,
+tab_market.render(tab2,
+    get_regime_data=get_regime_data, get_sector_data=get_sector_data,
+    get_intraday_sector_flow=get_intraday_sector_flow,
+)
+
+tab_catalyst.render(tab3,
+    get_snapshot=get_snapshot, get_max_pain=get_max_pain,
+    get_rs_vs_spy=get_rs_vs_spy, get_iv_rank=get_iv_rank,
+)
+
+tab_tickers.render(tab4,
     snapshots=snapshots, _watchlist=_watchlist, last_updated=last_updated,
     get_signal_strength=get_signal_strength, get_earnings_date=get_earnings_date,
     get_options_snapshot=get_options_snapshot, get_iv_rank=get_iv_rank,
@@ -597,41 +608,31 @@ tab_tickers.render(tab2,
     get_volume_spike=get_volume_spike, get_rvol=get_rvol,
 )
 
-tab_trades.render(tab3, ALL_STRATEGIES=ALL_STRATEGIES)
+tab_wizard.render(tab5,
+    get_iv_rank=get_iv_rank, get_earnings_date=get_earnings_date,
+    get_options_snapshot=get_options_snapshot,
+)
 
-tab_performance.render(tab4)
+tab_options.render(tab6,
+    get_max_pain=get_max_pain, get_iv_rank=get_iv_rank,
+    get_xsp_data=get_xsp_data,
+)
 
-tab_journal.render(tab5,
+tab_journal.render(tab7,
     ALL_STRATEGIES=ALL_STRATEGIES, TRADE_FIELDS=TRADE_FIELDS,
     save_trade=save_trade, load_trades=load_trades,
     save_alerts=save_alerts,
 )
 
-tab_market.render(tab6,
-    get_regime_data=get_regime_data, get_sector_data=get_sector_data,
-    get_intraday_sector_flow=get_intraday_sector_flow,
-)
+tab_performance.render(tab8)
 
-tab_catalyst.render(tab7,
-    get_snapshot=get_snapshot, get_max_pain=get_max_pain,
-    get_rs_vs_spy=get_rs_vs_spy, get_iv_rank=get_iv_rank,
-)
+tab_trades.render(tab9, ALL_STRATEGIES=ALL_STRATEGIES)
 
-tab_options.render(tab8,
-    get_max_pain=get_max_pain, get_iv_rank=get_iv_rank,
-    get_xsp_data=get_xsp_data,
-)
-
-tab_coach.render(tab9,
+tab_coach.render(tab10,
     save_tendency=save_tendency, load_tendencies=load_tendencies,
 )
 
-tab_ivscan.render(tab10, scan_iv_surface=scan_iv_surface)
-
-tab_wizard.render(tab11,
-    get_iv_rank=get_iv_rank, get_earnings_date=get_earnings_date,
-    get_options_snapshot=get_options_snapshot,
-)
+tab_ivscan.render(tab11, scan_iv_surface=scan_iv_surface)
 
 # ── Sidebar ──────────────────────────────────────────────────────────────────
 with st.sidebar:
