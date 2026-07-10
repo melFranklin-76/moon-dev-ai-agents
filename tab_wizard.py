@@ -94,6 +94,8 @@ def _run_checks(w_sym, w_dir, w_strike, w_premium, w_exp,
             blockers.append(("Three-strike rule", f"{st.session_state.daily_reds} red trades today — stop"))
         if contract_cost > 80:
             blockers.append(("Position too large", f"${contract_cost:.0f} exceeds $80 max per trade"))
+        if 0 < w_premium < 0.25:
+            blockers.append(("Premium too cheap", f"${w_premium:.2f} — under $0.25 the bid/ask spread eats your +15% target before the stock moves"))
         if in_death_zone:
             z = "first 5 min (no opening range)" if in_first_5 else "midday chop (12:00–1:30 PM ET)"
             blockers.append(("Death zone", f"It's the {z} — wait it out"))
@@ -109,6 +111,11 @@ def _run_checks(w_sym, w_dir, w_strike, w_premium, w_exp,
             warnings.append(("IV Rank > 80", f"Paying peak vol (rank {iv['rank']:.0f})"))
         if spread_pct is not None and spread_pct > 15:
             warnings.append(("Wide spread", f"Bid/ask spread is {spread_pct:.0f}% of mid — execution risk"))
+        if spread_pct is not None and 0.25 <= w_premium < 0.30:
+            spread_abs = spread_pct / 100 * w_premium
+            if spread_abs > 0.02:
+                warnings.append(("Cheap contract, loose spread",
+                                 f"~${spread_abs:.02f} spread on a ${w_premium:.2f} premium — need ≤ $0.02 on contracts under $0.30"))
         if dte <= 1:
             warnings.append(("0–1 DTE", "Same-day expiry — gamma risk is extreme"))
         if after_330:

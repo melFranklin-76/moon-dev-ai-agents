@@ -23,7 +23,9 @@ The dashboard enforces several of these automatically.
 - **Max per trade:** 10–15% of account ($25–$37 at $250)
 - **Max contracts:** 1 (at this account size, never more)
 - **Never average down** — one entry, one exit
-- **Premium range:** $0.10–$0.50 per share ($10–$50 total cost)
+- **Premium range:** $0.25–$0.50 per share ($25–$50 total cost)
+  - Under $0.25, the bid/ask spread alone can consume the +15% first target.
+  - On premiums under $0.30, require spread ≤ $0.02 — otherwise skip.
 
 ---
 
@@ -50,6 +52,15 @@ The dashboard enforces several of these automatically.
 | Setup breaks down | Exit immediately — don't wait for stop |
 
 **The -30% stop is automatic discipline.** If you feel like waiting for it to come back, that's hope trading — exit now.
+
+**The -30% stop is the disaster brake, not the plan.** The primary exit is "setup breaks down" —
+if the reason you entered is gone, get out at -10% or -15%, don't ride to the stop.
+The math: with +15%/+25% targets against a full -30% loss, you need roughly a 60% win rate
+just to break even. The system only works if most losers are cut shallow.
+
+**A no-trade day is a WIN.** The entry checklist is strict on purpose — most days nothing will
+qualify. No qualifying setup = no trade = a flat day, and flat days extend the 10-day challenge
+streak. Log it in the Journal so it counts.
 
 ---
 

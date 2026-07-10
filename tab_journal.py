@@ -49,6 +49,26 @@ def render(tab, *, ALL_STRATEGIES, TRADE_FIELDS, save_trade, load_trades):
         with st.expander("📊 Export to Google Sheets", expanded=False):
             _google_sheets_export(TRADE_FIELDS)
 
+        # ── No-Trade Day ─────────────────────────────────────────────────────
+        _today_iso  = date.today().isoformat()
+        _has_today  = any(str(t.get('date', '')).startswith(_today_iso)
+                          for t in st.session_state.trades)
+        if not _has_today:
+            _nt1, _nt2 = st.columns([3, 2])
+            _nt1.markdown("**No qualifying setup today?** That's a flat day — it counts toward your streak.")
+            if _nt2.button("🛌 Log No-Trade Day", key="no_trade_btn",
+                           help="Records a $0 flat day so your 10-day challenge streak keeps building"):
+                _nt_rec = {
+                    'date': datetime.now().isoformat(), 'ticker': '—',
+                    'strategy': 'No-Trade Day', 'side': '—',
+                    'entry': 0, 'exit': 0, 'pnl': 0, 'result': 'Flat',
+                    'notes': 'No qualifying setup — discipline win, sat on hands.',
+                }
+                save_trade(_nt_rec)
+                st.session_state.trades.append(_nt_rec)
+                st.success("Flat day logged — streak protected. 💪")
+                st.rerun()
+
         with st.expander("➕ Log New Trade", expanded=False and not _blocked):
             c1, c2 = st.columns(2)
             with c1:

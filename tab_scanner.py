@@ -183,6 +183,8 @@ def render(tab, *, snapshots, btc_price, _watchlist, last_updated,
                     {rs_line}
                     <p><strong>Stop:</strong> {sig['stop']}</p>
                     <p><strong>Targets:</strong> {sig['targets']}</p>
+                    <p style="color:#f39c12; font-size:12px;">⚠️ Data is ~15-min delayed —
+                    this fired in the past. Confirm the setup on your Webull chart LIVE before entering.</p>
                     </div>
                     """, unsafe_allow_html=True)
             elif not _watchlist:
