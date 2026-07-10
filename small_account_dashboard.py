@@ -324,7 +324,7 @@ def scan_163(snap: dict) -> dict | None:
             "strength": "🔥 ACTIVE",
             "trigger": f"Reclaimed VWAP ${vwap:.2f} with volume burst ({curr_vol/avg_vol:.1f}x avg)",
             "entry_note": f"Price ${curr:.2f} just crossed above VWAP ${vwap:.2f}",
-            "stop": "Close back below VWAP OR -20% premium",
+            "stop": "Close back below VWAP OR -30% premium",
             "targets": "+15% (half), +25% (rest)",
         }
     return None
@@ -344,7 +344,7 @@ def scan_172(snap: dict) -> dict | None:
             "strength": "🔥 ACTIVE",
             "trigger": f"Broke and held ${whole}.00 for 2 candles (${c_1:.2f}, ${c_0:.2f})",
             "entry_note": f"Buy call — 2 closes above ${whole}.00 confirmed",
-            "stop": f"Back below ${whole}.00 OR -20% premium",
+            "stop": f"Back below ${whole}.00 OR -30% premium",
             "targets": "+15% (half), +25% (rest)",
         }
     if c_2 > whole and c_1 < whole and c_0 < whole:
@@ -353,7 +353,7 @@ def scan_172(snap: dict) -> dict | None:
             "strength": "🔥 ACTIVE",
             "trigger": f"Broke and held below ${whole}.00 for 2 candles (${c_1:.2f}, ${c_0:.2f})",
             "entry_note": f"Buy put — 2 closes below ${whole}.00 confirmed",
-            "stop": f"Back above ${whole}.00 OR -20% premium",
+            "stop": f"Back above ${whole}.00 OR -30% premium",
             "targets": "+15% (half), +25% (rest)",
         }
     return None
@@ -385,7 +385,7 @@ def scan_177(snap: dict, btc_price: float) -> dict | None:
             "strength": "🔥 ACTIVE",
             "trigger": f"BTC broke ${broken:,} {arrow} — {snap['symbol']} confirmed {side} VWAP",
             "entry_note": f"{snap['symbol']} ${price:.2f} {side} VWAP ${vwap:.2f}",
-            "stop": f"{snap['symbol']} {'loses' if direction=='UP' else 'reclaims'} VWAP OR -20% premium",
+            "stop": f"{snap['symbol']} {'loses' if direction=='UP' else 'reclaims'} VWAP OR -30% premium",
             "targets": "+15% (half), +25% (rest)",
         }
     return None

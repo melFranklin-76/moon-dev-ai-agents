@@ -37,9 +37,9 @@ def render(tab, *, get_iv_rank, get_earnings_date, get_options_snapshot):
         st.markdown("**Required confirmations** — check each before running the gate:")
         rcc1, rcc2 = st.columns(2)
         with rcc1:
-            cb_stop   = st.checkbox("Stop-loss defined at −50% premium", key='wizard_cb_stop')
-            cb_target = st.checkbox("Target defined (+25% or +50%)",     key='wizard_cb_target')
-            cb_time   = st.checkbox("Time-exit defined (e.g. by 3:30 PM ET)", key='wizard_cb_time')
+            cb_stop   = st.checkbox("Stop-loss defined at −30% premium (hard rule)", key='wizard_cb_stop')
+            cb_target = st.checkbox("Targets defined (+15% half, +25% rest)", key='wizard_cb_target')
+            cb_time   = st.checkbox("Time-exit defined (out by 10:00 AM CT if not up +15%)", key='wizard_cb_time')
         with rcc2:
             cb_grade  = st.checkbox("Catalyst Grader is A or A+ for this ticker", key='wizard_cb_grade')
             cb_one    = st.checkbox("This is my ONE trade today",        key='wizard_cb_one')
@@ -62,13 +62,14 @@ def _run_checks(w_sym, w_dir, w_strike, w_premium, w_exp,
         opts   = get_options_snapshot(w_sym)
 
         contract_cost = w_premium * 100 if w_premium > 0 else 0
-        stop_loss     = contract_cost * 0.50
+        stop_loss     = contract_cost * 0.30
+        target_15     = contract_cost * 0.15
         target_25     = contract_cost * 0.25
-        target_50     = contract_cost * 0.50
 
         dte = max((w_exp - date.today()).days, 0)
 
-        now_et = datetime.now()
+        from zoneinfo import ZoneInfo
+        now_et = datetime.now(ZoneInfo("America/New_York"))
         hr, mn = now_et.hour, now_et.minute
         mins_since_open = (hr - 9) * 60 + (mn - 30)
         in_first_5    = 0 <= mins_since_open < 5
@@ -156,9 +157,9 @@ def _run_checks(w_sym, w_dir, w_strike, w_premium, w_exp,
         if w_premium > 0:
             pcc1, pcc2, pcc3, pcc4 = st.columns(4)
             pcc1.metric("Cost (1 ct)",  f"${contract_cost:.0f}")
-            pcc2.metric("Risk at −50%", f"${stop_loss:.0f}")
-            pcc3.metric("Target +25%",  f"+${target_25:.0f}")
-            pcc4.metric("Target +50%",  f"+${target_50:.0f}")
+            pcc2.metric("Risk at −30%", f"${stop_loss:.0f}")
+            pcc3.metric("Target +15%",  f"+${target_15:.0f}")
+            pcc4.metric("Target +25%",  f"+${target_25:.0f}")
 
         with st.expander(f"🛑 Hard Blockers ({len(blockers)})", expanded=bool(blockers)):
             if blockers:
@@ -185,7 +186,7 @@ def _run_checks(w_sym, w_dir, w_strike, w_premium, w_exp,
                 st.markdown("**Account state**")
                 st.markdown(f"- Daily P&L: **${st.session_state.daily_pnl:.2f}** (of −$50 cap)")
                 st.markdown(f"- Red trades today: **{st.session_state.daily_reds}** (of 3 max)")
-                st.markdown(f"- Time: **{now_et.strftime('%I:%M %p')}** server-local")
+                st.markdown(f"- Time: **{now_et.strftime('%I:%M %p')} ET**")
                 st.markdown(f"- Minutes since open: **{mins_since_open}**")
             with cdc2:
                 st.markdown("**Trade signals**")

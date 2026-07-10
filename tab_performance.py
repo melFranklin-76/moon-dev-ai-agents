@@ -5,6 +5,36 @@ import plotly.graph_objects as go
 from datetime import date
 
 
+def _challenge_from_trades(trades: list) -> tuple[list, int]:
+    """Derive 10-day challenge state from the trade journal so it survives
+    restarts. A trading day is green if its net P&L > 0, red if < 0.
+    A red day resets the streak. Returns (last-10-day icons, current streak)."""
+    day_pnl: dict = {}
+    for t in trades:
+        d = str(t.get('date', ''))[:10]
+        if not d:
+            continue
+        try:
+            day_pnl[d] = day_pnl.get(d, 0.0) + float(t.get('pnl', 0) or 0)
+        except (TypeError, ValueError):
+            continue
+
+    days = [(d, 1 if p > 0 else (-1 if p < 0 else 0)) for d, p in sorted(day_pnl.items())]
+
+    streak = 0
+    for _, r in days:
+        if r == -1:
+            streak = 0
+        else:
+            streak += 1
+    streak = min(streak, 10)
+
+    # Last 10 traded days for the icon row, padded with pending slots
+    recent = [r for _, r in days[-10:]]
+    icons  = recent + [0] * (10 - len(recent))
+    return icons, streak
+
+
 def render(tab):
     with tab:
         st.markdown("## 📈 10-DAY CHALLENGE TRACKER")
@@ -12,9 +42,11 @@ def render(tab):
         c_left, c_right = st.columns([2, 1])
 
         with c_left:
-            icons   = {1: "✅", -1: "❌", 0: "⬜"}
-            day_row = " ".join(icons[d] for d in st.session_state.challenge_days)
-            streak  = st.session_state.current_streak
+            icons_map = {1: "✅", -1: "❌", 0: "⬜"}
+            challenge_days, streak = _challenge_from_trades(st.session_state.trades)
+            st.session_state.challenge_days = challenge_days
+            st.session_state.current_streak = streak
+            day_row = " ".join(icons_map[d] for d in challenge_days)
             st.markdown(f"""
             <div class="green-box">
             <h2>🏆 10-Day Prove-It Challenge</h2>
