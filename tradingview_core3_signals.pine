@@ -1,0 +1,74 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────
+// Core 3 Scalper Signals — #162 / #163 / #172
+// Companion indicator for the $250 Small Account Dashboard.
+//
+// Setup:
+//   1. TradingView → Pine Editor → paste this script → "Add to chart"
+//   2. Use a 1-MINUTE chart
+//   3. Enable extended hours (right-click chart → Session → Extended)
+//      — required for the premarket high line (#162)
+//
+// What it plots:
+//   ▲ 163 (lime)    — VWAP Reclaim: candle opens below VWAP, closes
+//                     above it, on a 1.2x+ volume burst
+//   ▲ 172 (aqua)    — Whole-Dollar Break-and-Hold: two consecutive
+//                     closes above a whole-dollar level
+//   ▲ 162 (fuchsia) — Premarket High Retest-and-Go: price retests
+//                     the PM high and pushes through with volume
+//   ▼ EXIT? (red)   — Setup breakdown: price lost VWAP. Check your
+//                     position — primary exit is setup invalidation,
+//                     not the -30% premium stop.
+//   Green shading   — Your trading window (9:30–10:00 AM CT)
+//
+// Limitation: this watches the STOCK, not your option premium.
+// The -30% stop / +15% / +25% targets are managed on Webull's P&L.
+// ─────────────────────────────────────────────────────────────────
+indicator("Core 3 Scalper — #162/#163/#172", overlay=true)
+
+// ── Inputs ──────────────────────────────────────────────
+volMult = input.float(1.2, "Volume burst multiple", step=0.1)
+volLen  = input.int(10, "Volume average length")
+
+// ── VWAP + volume burst ─────────────────────────────────
+vwapVal  = ta.vwap(hlc3)
+volBurst = volume > volMult * ta.sma(volume, volLen)
+plot(vwapVal, "VWAP", color=color.orange, linewidth=2)
+
+// ── Trading window: 9:30–10:00 AM CT (10:30–11:00 ET) ───
+inWindow = not na(time(timeframe.period, "1030-1100", "America/New_York"))
+bgcolor(inWindow ? color.new(color.green, 92) : na)
+
+// ── #163 VWAP Reclaim ───────────────────────────────────
+sig163 = close[1] < vwapVal[1] and close > vwapVal and close > open and volBurst
+plotshape(sig163, "163 VWAP Reclaim", shape.triangleup,
+     location.belowbar, color.lime, text="163", size=size.small)
+
+// ── #172 Whole-Dollar Break-and-Hold ────────────────────
+lvl    = math.floor(close[1])
+sig172 = open[1] < lvl and close[1] > lvl and close > lvl and lvl > 0
+plotshape(sig172, "172 Whole-Dollar Hold", shape.triangleup,
+     location.belowbar, color.aqua, text="172", size=size.small)
+
+// ── #162 Premarket High Retest-and-Go ───────────────────
+var float pmHigh = na
+if session.ispremarket
+    pmHigh := na(pmHigh) ? high : math.max(pmHigh, high)
+if not session.ismarket and not session.ispremarket
+    pmHigh := na
+plot(pmHigh, "PM High", color=color.yellow, style=plot.style_linebr)
+sig162 = session.ismarket and not na(pmHigh) and
+     ta.crossover(close, pmHigh) and volBurst and low[1] <= pmHigh
+plotshape(sig162, "162 PM High Go", shape.triangleup,
+     location.belowbar, color.fuchsia, text="162", size=size.small)
+
+// ── Setup-breakdown warning (your real exit signal) ─────
+brokeDown = close < vwapVal and close[1] >= vwapVal[1] and close < open
+plotshape(brokeDown, "Lost VWAP", shape.triangledown,
+     location.abovebar, color.red, text="EXIT?", size=size.tiny)
+
+// ── Alerts ──────────────────────────────────────────────
+alertcondition(sig163, "163 VWAP Reclaim", "163 VWAP Reclaim fired")
+alertcondition(sig172, "172 Whole-Dollar Hold", "172 Whole-Dollar fired")
+alertcondition(sig162, "162 PM High Go", "162 PM High Retest fired")
+alertcondition(brokeDown, "Lost VWAP", "Price lost VWAP — check your exit")
