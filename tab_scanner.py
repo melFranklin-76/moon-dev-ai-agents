@@ -20,9 +20,10 @@ def render(tab, *, snapshots, btc_price, _watchlist, last_updated,
             f_max_price  = fc2.number_input("Max Price ($)",   value=100.0, step=5.0,  min_value=1.0)
             f_min_change = fc3.number_input("Min Change (%)",  value=3.0,   step=0.5,  min_value=0.5)
             f_min_relvol = fc4.number_input(
-                "Min Rel Vol (x)", value=1.0, step=0.1, min_value=0.1,
-                help="Volume vs 3-month average. Stays under 1.0x most of the morning — "
-                     "set to 0.5x in pre-market, 1.0x mid-day, 2.0x+ for explosive movers only.",
+                "Min Rel Vol (x)", value=1.5, step=0.1, min_value=0.1,
+                help="Volume PACE vs what's normal for this time of day. "
+                     "1.0x = normal pace, 1.5x = elevated, 2.0x+ = in play. "
+                     "Works correctly right at the open — no need to lower it in the morning.",
             )
 
         scan_col, info_col = st.columns([1, 3])
@@ -72,10 +73,10 @@ def render(tab, *, snapshots, btc_price, _watchlist, last_updated,
             rej = _diag['rejected']
             bottleneck = max(rej, key=rej.get)
             labels = {
-                "price":   f"price outside ${f_min_price:g}–${f_max_price:g}",
+                "price":   f"price outside \\${f_min_price:g}–\\${f_max_price:g}",
                 "change":  f"% change below {f_min_change:g}%",
-                "volume":  "volume below 500K",
-                "rel_vol": f"rel-volume below {f_min_relvol:g}x",
+                "volume":  "volume below pace-adjusted 500K floor",
+                "rel_vol": f"volume pace below {f_min_relvol:g}x",
             }
             st.warning(
                 f"**0 of {_diag['raw_count']} movers passed.** "
@@ -85,8 +86,8 @@ def render(tab, *, snapshots, btc_price, _watchlist, last_updated,
             )
             if bottleneck == "rel_vol":
                 st.caption(
-                    "💡 Rel-volume stays under 1.0x most of the morning until volume builds. "
-                    "Try lowering **Min Rel Vol** to 0.5x pre-market, or 0.7x in the first hour."
+                    "💡 Rel-vol is pace-adjusted for time of day, so 1.0x = normal pace even at the open. "
+                    "A quiet tape may genuinely have nothing above your threshold — try 1.0x."
                 )
             elif bottleneck == "change":
                 st.caption("💡 The whole tape may be flat today — try lowering **Min Change** to 2.0%.")
