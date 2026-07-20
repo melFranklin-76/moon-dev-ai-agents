@@ -48,14 +48,20 @@ def render(tab, *, snapshots, _watchlist, last_updated,
                                      get_options_snapshot, get_iv_rank, get_rs_vs_spy,
                                      get_squeeze_score, get_max_pain, get_best_buy_strike,
                                      get_earnings_date, get_volume_spike, get_rvol)
-                if st.button(f"🔍 Analyze {sym}", key=f"analyze_{sym}",
-                             help="Send to Catalyst Grader + Options Planner + Entry Wizard",
-                             width="stretch"):
-                    st.session_state['selected_ticker'] = sym
-                    st.session_state['grader_ticker']   = sym
-                    st.session_state['planner_ticker']  = sym
-                    st.session_state['wizard_sym']      = sym
-                    st.toast(f"{sym} loaded — open 🔍 Catalyst Grader or 💰 Options Planner", icon="🔍")
+                st.button(f"🔍 Analyze {sym}", key=f"analyze_{sym}",
+                          help="Send to Catalyst Grader + Options Planner + Entry Wizard",
+                          width="stretch",
+                          on_click=_send_to_tools, args=(sym,))
+
+
+def _send_to_tools(sym):
+    """on_click callback — runs before widgets render, so writing
+    widget-bound keys (grader_ticker etc.) is allowed here."""
+    st.session_state['selected_ticker'] = sym
+    st.session_state['grader_ticker']   = sym
+    st.session_state['planner_ticker']  = sym
+    st.session_state['wizard_sym']      = sym
+    st.toast(f"{sym} loaded — open 🔍 Catalyst or 💰 Options", icon="🔍")
 
 
 def _render_simple_card(sym, snap, color, icon, vwap, price, vwap_label,

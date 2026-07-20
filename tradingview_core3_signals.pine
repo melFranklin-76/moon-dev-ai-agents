@@ -1,6 +1,6 @@
 //@version=5
 // ─────────────────────────────────────────────────────────────────
-// Core 3 Scalper Signals — #162 / #163 / #172
+// Core 3 Scalper Signals v2 — #162 / #163 / #172
 // Companion indicator for the $250 Small Account Dashboard.
 //
 // Setup:
@@ -9,45 +9,87 @@
 //   3. Enable extended hours (right-click chart → Session → Extended)
 //      — required for the premarket high line (#162)
 //
-// What it plots:
-//   ▲ 163 (lime)    — VWAP Reclaim: candle opens below VWAP, closes
-//                     above it, on a 1.2x+ volume burst
-//   ▲ 172 (aqua)    — Whole-Dollar Break-and-Hold: two consecutive
-//                     closes above a whole-dollar level
-//   ▲ 162 (fuchsia) — Premarket High Retest-and-Go: price retests
-//                     the PM high and pushes through with volume
-//   ▼ EXIT? (red)   — Setup breakdown: price lost VWAP. Check your
-//                     position — primary exit is setup invalidation,
-//                     not the -30% premium stop.
-//   Green shading   — Your trading window (8:30–9:00 AM CT)
+// BUY signals (triangles below the bar):
+//   ▲ 163  (lime)    — VWAP Reclaim on a FULL-BODY candle (small
+//                      upper wick) with a volume burst. Wick-pokes
+//                      through VWAP do NOT fire.
+//   ▲ 172  (aqua)    — Whole-Dollar Break-and-Hold. "+" version =
+//                      shelf: the hold candle never dipped back
+//                      under the level (A+ quality).
+//   ▲ 162  (fuchsia) — PM High break with volume, or "162H" =
+//                      hammer defense: price wicked below the PM
+//                      high and closed back above (failed breakdown).
+//   ▲ 1P   (yellow)  — First Pullback (Ross Cameron style): rapid
+//                      impulse up → 1-3 red candles holding the 50%
+//                      retracement → first candle to make a new
+//                      high. Stop = pullback low (red dot), target
+//                      = 2R (green dot). MACD filter optional.
+//   A "+" after the number = 2x+ volume burst (A+ signal).
+//
+// SELL / warning signals (shapes above the bar):
+//   ▼ EXIT? (red)    — Price lost VWAP on a red candle. Primary
+//                      exit is setup invalidation, not the -30% stop.
+//   ▼ WICK  (orange) — Long upper wick on high volume: sellers
+//                      active. If you're up, take the +15%.
+//
+// Built-in discipline filters (from TRADING_RULES.md):
+//   • Chase blocker — no buy signal on the 3rd+ straight green
+//     candle. If you missed the entry, you missed it.
+//   • Window-only toggle — hide signals outside 8:30–9:00 AM CT.
+//   • Green shading — your entry window on the chart.
 //
 // Limitation: this watches the STOCK, not your option premium.
 // The -30% stop / +15% / +25% targets are managed on Webull's P&L.
 // ─────────────────────────────────────────────────────────────────
-indicator("Core 3 Scalper — #162/#163/#172", overlay=true)
+indicator("Core 3 Scalper v2 — #162/#163/#172", overlay=true)
 
 // ── Inputs ──────────────────────────────────────────────
-volMult = input.float(1.2, "Volume burst multiple", step=0.1)
-volLen  = input.int(10, "Volume average length")
+volMult    = input.float(1.2, "Volume burst multiple", step=0.1)
+strongMult = input.float(2.0, "A+ volume multiple", step=0.1)
+volLen     = input.int(10, "Volume average length")
+bodyMin    = input.float(0.55, "Min body % of range (163 quality)", step=0.05, minval=0.1, maxval=1.0)
+wickMax    = input.float(0.30, "Max upper wick % of range (163)", step=0.05, minval=0.0, maxval=0.9)
+onlyWindow = input.bool(false, "Only signal inside 8:30-9:00 AM CT window")
 
-// ── VWAP + volume burst ─────────────────────────────────
-vwapVal  = ta.vwap(hlc3)
-volBurst = volume > volMult * ta.sma(volume, volLen)
+// ── Candle anatomy ──────────────────────────────────────
+rng       = high - low
+body      = math.abs(close - open)
+upWick    = high - math.max(close, open)
+loWick    = math.min(close, open) - low
+cleanBody = rng > 0 and body / rng >= bodyMin and upWick / rng <= wickMax
+hammer    = rng > 0 and loWick / rng >= 0.4 and close > open
+
+// Chase blocker: 3rd+ consecutive green candle = too late
+chasing = close > open and close[1] > open[1] and close[2] > open[2]
+
+// ── VWAP + volume ───────────────────────────────────────
+vwapVal   = ta.vwap(hlc3)
+volAvg    = ta.sma(volume, volLen)
+volBurst  = volume > volMult * volAvg
+volStrong = volume > strongMult * volAvg
 plot(vwapVal, "VWAP", color=color.orange, linewidth=2)
 
 // ── Trading window: 8:30–9:00 AM CT (9:30–10:00 ET) ─────
 inWindow = not na(time(timeframe.period, "0930-1000", "America/New_York"))
 bgcolor(inWindow ? color.new(color.green, 92) : na)
+gate = onlyWindow ? inWindow : true
 
-// ── #163 VWAP Reclaim ───────────────────────────────────
-sig163 = close[1] < vwapVal[1] and close > vwapVal and close > open and volBurst
-plotshape(sig163, "163 VWAP Reclaim", shape.triangleup,
+// ── #163 VWAP Reclaim (full-body candle only) ───────────
+raw163 = close[1] < vwapVal[1] and close > vwapVal and close > open and volBurst
+sig163 = raw163 and cleanBody and not chasing and gate
+plotshape(sig163 and volStrong, "163+ A+ Reclaim", shape.triangleup,
+     location.belowbar, color.lime, text="163+", size=size.small)
+plotshape(sig163 and not volStrong, "163 VWAP Reclaim", shape.triangleup,
      location.belowbar, color.lime, text="163", size=size.small)
 
 // ── #172 Whole-Dollar Break-and-Hold ────────────────────
 lvl    = math.floor(close[1])
-sig172 = open[1] < lvl and close[1] > lvl and close > lvl and lvl > 0
-plotshape(sig172, "172 Whole-Dollar Hold", shape.triangleup,
+raw172 = open[1] < lvl and close[1] > lvl and close > lvl and lvl > 0
+shelf  = raw172 and low > lvl          // hold candle never dipped back under
+sig172 = raw172 and not chasing and gate
+plotshape(sig172 and shelf, "172+ Shelf Hold", shape.triangleup,
+     location.belowbar, color.aqua, text="172+", size=size.small)
+plotshape(sig172 and not shelf, "172 Whole-Dollar Hold", shape.triangleup,
      location.belowbar, color.aqua, text="172", size=size.small)
 
 // ── #162 Premarket High Retest-and-Go ───────────────────
@@ -57,18 +99,66 @@ if session.ispremarket
 if not session.ismarket and not session.ispremarket
     pmHigh := na
 plot(pmHigh, "PM High", color=color.yellow, style=plot.style_linebr)
-sig162 = session.ismarket and not na(pmHigh) and
+
+breakGo  = session.ismarket and not na(pmHigh) and
      ta.crossover(close, pmHigh) and volBurst and low[1] <= pmHigh
+hammerGo = session.ismarket and not na(pmHigh) and
+     low <= pmHigh and close > pmHigh and hammer and volBurst
+sig162  = breakGo and not chasing and gate
+sig162h = hammerGo and not breakGo and not chasing and gate
 plotshape(sig162, "162 PM High Go", shape.triangleup,
      location.belowbar, color.fuchsia, text="162", size=size.small)
+plotshape(sig162h, "162H Hammer Defense", shape.triangleup,
+     location.belowbar, color.fuchsia, text="162H", size=size.small)
 
-// ── Setup-breakdown warning (your real exit signal) ─────
+// ── #1P First Pullback (impulse → hold 50% → new high) ──
+runLen    = input.int(5,     "1P: impulse lookback bars", minval=2)
+minRunPct = input.float(2.0, "1P: min impulse move %", step=0.25)
+useMacd   = input.bool(true, "1P: require MACD above signal line")
+
+[macdLine, macdSig, _] = ta.macd(close, 12, 26, 9)
+macdOK = not useMacd or macdLine > macdSig
+
+// Count consecutive red candles ending at the previous bar (1-3 valid)
+red1 = close[1] < open[1]
+red2 = close[2] < open[2]
+red3 = close[3] < open[3]
+red4 = close[4] < open[4]
+redCnt = red1 ? (red2 ? (red3 ? (red4 ? 4 : 3) : 2) : 1) : 0
+
+pLen    = math.max(redCnt, 1)
+pullLow = ta.lowest(low[1],  pLen)            // low of the pullback
+legHigh = ta.highest(high[1], pLen + 1)       // top of the impulse
+legLow  = ta.lowest(low[1],  pLen + runLen)   // where the run started
+runPct  = legLow > 0 ? (legHigh - legLow) / legLow * 100 : 0.0
+holds50 = pullLow > legHigh - 0.5 * (legHigh - legLow)
+
+sigFP = redCnt >= 1 and redCnt <= 3 and runPct >= minRunPct and holds50 and
+     high > high[1] and close > open and close > vwapVal and
+     volBurst and macdOK and gate
+plotshape(sigFP, "1P First Pullback", shape.triangleup,
+     location.belowbar, color.yellow, text="1P", size=size.small)
+// Stop (pullback low) and 2:1 target for the signal bar
+plot(sigFP ? pullLow : na, "1P Stop", color=color.red,
+     style=plot.style_circles, linewidth=3)
+plot(sigFP ? close + 2 * (close - pullLow) : na, "1P 2R Target",
+     color=color.green, style=plot.style_circles, linewidth=3)
+
+// ── SELL / warning signals ──────────────────────────────
+// Lost VWAP on a red candle — setup invalidation, your primary exit
 brokeDown = close < vwapVal and close[1] >= vwapVal[1] and close < open
 plotshape(brokeDown, "Lost VWAP", shape.triangledown,
      location.abovebar, color.red, text="EXIT?", size=size.tiny)
 
+// Long upper wick on high volume — sellers active, take the +15%
+sellerWick = rng > 0 and upWick / rng >= 0.5 and volBurst and close > vwapVal
+plotshape(sellerWick, "Seller Wick", shape.triangledown,
+     location.abovebar, color.orange, text="WICK", size=size.tiny)
+
 // ── Alerts ──────────────────────────────────────────────
-alertcondition(sig163, "163 VWAP Reclaim", "163 VWAP Reclaim fired")
+alertcondition(sig163, "163 VWAP Reclaim", "163 VWAP Reclaim fired (clean body + volume)")
 alertcondition(sig172, "172 Whole-Dollar Hold", "172 Whole-Dollar fired")
-alertcondition(sig162, "162 PM High Go", "162 PM High Retest fired")
+alertcondition(sig162 or sig162h, "162 PM High Go", "162 PM High Retest fired")
+alertcondition(sigFP, "1P First Pullback", "First Pullback fired — held 50%, new high, stop at pullback low")
 alertcondition(brokeDown, "Lost VWAP", "Price lost VWAP — check your exit")
+alertcondition(sellerWick, "Seller Wick", "Long upper wick on volume — consider taking profit")
