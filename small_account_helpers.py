@@ -197,6 +197,19 @@ def scan_momentum_universe(
             if sym and sym not in raw:
                 raw[sym] = q
 
+    # Time-of-day adjustment: early in the session, cumulative volume is
+    # naturally tiny. Compare volume to what's EXPECTED by this point in
+    # the day, so a stock trading at 2x pace shows rel_vol 2.0 whether
+    # it's 9:36 AM or 3:00 PM ET. Before the open, use the full-day
+    # numbers (quotes still reflect the prior session).
+    from zoneinfo import ZoneInfo as _ZI
+    _now_et  = datetime.now(_ZI("America/New_York"))
+    _mins_in = (_now_et.hour - 9) * 60 + (_now_et.minute - 30)
+    if 0 < _mins_in < 390:
+        time_frac = max(_mins_in / 390.0, 5 / 390.0)
+    else:
+        time_frac = 1.0
+
     # Per-filter rejection counts
     rejected = {"price": 0, "change": 0, "volume": 0, "rel_vol": 0}
     results = []
@@ -205,7 +218,8 @@ def scan_momentum_universe(
         change  = float(q.get("regularMarketChangePercent", 0) or 0)
         volume  = int(q.get("regularMarketVolume", 0) or 0)
         avg_vol = int(q.get("averageDailyVolume3Month", 1) or 1)
-        rel_vol = round(volume / avg_vol, 2) if avg_vol > 0 else 0.0
+        expected_by_now = avg_vol * time_frac
+        rel_vol = round(volume / expected_by_now, 2) if expected_by_now > 0 else 0.0
 
         if not (min_price <= price <= max_price):
             rejected["price"] += 1
@@ -213,7 +227,7 @@ def scan_momentum_universe(
         if change < min_change:
             rejected["change"] += 1
             continue
-        if volume < min_volume:
+        if volume < min_volume * time_frac:
             rejected["volume"] += 1
             continue
         if rel_vol < min_rel_vol:
