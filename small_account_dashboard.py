@@ -522,9 +522,9 @@ st.markdown(f"""
 # ── Trading Window Countdown ─────────────────────────────────────────────────
 from zoneinfo import ZoneInfo
 _now_ct = datetime.now(ZoneInfo("America/Chicago"))
-_open_h, _open_m = 8, 30   # 8:30 AM CT = pre-market prep
-_trade_h, _trade_m = 9, 30  # 9:30 AM CT = entries
-_close_h, _close_m = 10, 0  # 10:00 AM CT = window closes
+_open_h, _open_m = 7, 30   # 7:30 AM CT = pre-market prep
+_trade_h, _trade_m = 8, 30  # 8:30 AM CT = market open, entries begin
+_close_h, _close_m = 9, 0   # 9:00 AM CT = window closes
 
 _now_mins = _now_ct.hour * 60 + _now_ct.minute
 _open_mins  = _open_h * 60 + _open_m
@@ -833,7 +833,7 @@ with st.sidebar:
 st.markdown("---")
 st.markdown("""
 <div style="text-align:center; color:#8b92a8;">
-<p>🌙 <strong>Rules:</strong> 1 contract · Breakout or bailout · 9:30 AM CT cutoff · 3 strikes and done · Journal everything</p>
+<p>🌙 <strong>Rules:</strong> 1 contract · Breakout or bailout · 9:00 AM CT cutoff · 3 strikes and done · Journal everything</p>
 <p>Made for small account traders building real discipline</p>
 </div>
 """, unsafe_allow_html=True)

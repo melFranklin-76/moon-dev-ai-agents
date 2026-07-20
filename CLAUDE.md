@@ -167,7 +167,7 @@ Streamlit Community Cloud auto-deploys when PRs merge to `main`.
 ## Account Context
 
 - $250 starting balance, Webull cash account, Level 2 options
-- Trading window: 9:30–10:00 AM CT (10:30–11:00 AM ET)
+- Trading window: 8:30–9:00 AM CT (9:30–10:00 AM ET) — first 30 min after the open
 - Stop loss: -30% premium (hard rule, no exceptions)
 - Targets: +15% (half exit), +25% (full exit)
 - Max risk per trade: 10–15% of account (1 contract only)

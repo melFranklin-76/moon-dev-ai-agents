@@ -19,7 +19,7 @@
 //   ▼ EXIT? (red)   — Setup breakdown: price lost VWAP. Check your
 //                     position — primary exit is setup invalidation,
 //                     not the -30% premium stop.
-//   Green shading   — Your trading window (9:30–10:00 AM CT)
+//   Green shading   — Your trading window (8:30–9:00 AM CT)
 //
 // Limitation: this watches the STOCK, not your option premium.
 // The -30% stop / +15% / +25% targets are managed on Webull's P&L.
@@ -35,8 +35,8 @@ vwapVal  = ta.vwap(hlc3)
 volBurst = volume > volMult * ta.sma(volume, volLen)
 plot(vwapVal, "VWAP", color=color.orange, linewidth=2)
 
-// ── Trading window: 9:30–10:00 AM CT (10:30–11:00 ET) ───
-inWindow = not na(time(timeframe.period, "1030-1100", "America/New_York"))
+// ── Trading window: 8:30–9:00 AM CT (9:30–10:00 ET) ─────
+inWindow = not na(time(timeframe.period, "0930-1000", "America/New_York"))
 bgcolor(inWindow ? color.new(color.green, 92) : na)
 
 // ── #163 VWAP Reclaim ───────────────────────────────────

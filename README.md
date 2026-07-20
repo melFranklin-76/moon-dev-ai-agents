@@ -155,7 +155,7 @@ Triggers on every page refresh (auto-refresh every 60s). Fires:
 - Starting balance: $250
 - Daily P&L goal: +$25 (+10%)
 - Three red trades in one day → journal locks automatically
-- Options window: 9:30 AM CT only (momentum fades after)
+- Options window: 8:30–9:00 AM CT only (momentum fades after)
 - Stop loss: -30% premium
 - Take profit: +15% (half) / +25% (rest)
 

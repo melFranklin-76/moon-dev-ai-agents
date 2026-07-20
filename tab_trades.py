@@ -32,7 +32,7 @@ def render(tab, *, ALL_STRATEGIES):
             <p>{desc}</p>
             <p style="color:#8b92a8; font-size:12px;">
               Targets: +15% (half) · +25% (rest) &nbsp;|&nbsp; Stop: −30% premium, no exceptions
-              &nbsp;|&nbsp; Window: 9:30–10:00 AM CT
+              &nbsp;|&nbsp; Window: 8:30–9:00 AM CT
             </p>
             </div>
             """, unsafe_allow_html=True)
