@@ -1,6 +1,8 @@
 //@version=5
 // ─────────────────────────────────────────────────────────────────
 // Core 3 BACKTEST — #163 VWAP Reclaim + #172 Whole-Dollar Hold
+//                   + 1P First Pullback (impulse → hold 50% → new
+//                   high; stop = pullback low, target = 2R)
 // Companion strategy for the $250 Small Account Dashboard.
 //
 // PURPOSE: test whether the setups have an edge on YOUR tickers
@@ -37,11 +39,15 @@ strategy("Core 3 Backtest — #163/#172", overlay=true,
 // ── Inputs ──────────────────────────────────────────────
 use163    = input.bool(true,  "Test #163 VWAP Reclaim")
 use172    = input.bool(true,  "Test #172 Whole-Dollar Hold")
+useFP     = input.bool(true,  "Test 1P First Pullback")
 volMult   = input.float(1.2,  "Volume burst multiple", step=0.1)
 volLen    = input.int(10,     "Volume average length")
 targetPct = input.float(0.75, "Stock target % (≈ +15-25% premium)", step=0.05)
 stopPct   = input.float(1.0,  "Stock stop % (≈ -30% premium)", step=0.05)
 useInval  = input.bool(true,  "Also exit on setup breakdown (recommended)")
+runLen    = input.int(5,      "1P: impulse lookback bars", minval=2)
+minRunPct = input.float(2.0,  "1P: min impulse move %", step=0.25)
+useMacd   = input.bool(true,  "1P: require MACD above signal line")
 
 // ── Shared signals (identical to the live indicator) ────
 vwapVal  = ta.vwap(hlc3)
@@ -58,28 +64,59 @@ sig163 = close[1] < vwapVal[1] and close > vwapVal and close > open and volBurst
 lvl    = math.floor(close[1])
 sig172 = open[1] < lvl and close[1] > lvl and close > lvl and lvl > 0
 
+// 1P First Pullback: impulse up → 1-3 red candles holding 50% → new high
+[macdLine, macdSig, _] = ta.macd(close, 12, 26, 9)
+macdOK = not useMacd or macdLine > macdSig
+red1 = close[1] < open[1]
+red2 = close[2] < open[2]
+red3 = close[3] < open[3]
+red4 = close[4] < open[4]
+redCnt  = red1 ? (red2 ? (red3 ? (red4 ? 4 : 3) : 2) : 1) : 0
+pLen    = math.max(redCnt, 1)
+pullLow = ta.lowest(low[1],  pLen)
+legHigh = ta.highest(high[1], pLen + 1)
+legLow  = ta.lowest(low[1],  pLen + runLen)
+runPct  = legLow > 0 ? (legHigh - legLow) / legLow * 100 : 0.0
+holds50 = pullLow > legHigh - 0.5 * (legHigh - legLow)
+sigFP   = redCnt >= 1 and redCnt <= 3 and runPct >= minRunPct and holds50 and
+     high > high[1] and close > open and close > vwapVal and volBurst and macdOK
+
 // ── Entries (one trade at a time — icebreaker rule) ─────
 var float lvl172 = na
+var float fpStop = na
 flat = strategy.position_size == 0
 
 if use163 and sig163 and inWindow and flat
     strategy.entry("163", strategy.long)
     lvl172 := na
+    fpStop := na
 if use172 and sig172 and inWindow and flat and not (use163 and sig163)
     strategy.entry("172", strategy.long)
     lvl172 := lvl
+    fpStop := na
+if useFP and sigFP and inWindow and flat and not (use163 and sig163) and not (use172 and sig172)
+    strategy.entry("1P", strategy.long)
+    lvl172 := na
+    fpStop := pullLow
 
 // ── Exits ───────────────────────────────────────────────
 if strategy.position_size > 0
-    avg = strategy.position_avg_price
-    strategy.exit("tp/sl", limit=avg * (1 + targetPct / 100),
-         stop=avg * (1 - stopPct / 100))
+    avg  = strategy.position_avg_price
+    eid  = strategy.opentrades.entry_id(0)
+    if eid == "1P" and not na(fpStop)
+        // Ross rules: stop = pullback low, target = 2R
+        strategy.exit("x1p", stop=fpStop, limit=avg + 2 * (avg - fpStop))
+    else
+        strategy.exit("tp/sl", limit=avg * (1 + targetPct / 100),
+             stop=avg * (1 - stopPct / 100))
     // Setup breakdown = primary exit (don't ride to the stop)
     if useInval
-        if strategy.opentrades.entry_id(0) == "163" and close < vwapVal
+        if eid == "163" and close < vwapVal
             strategy.close_all(comment="lost VWAP")
-        if strategy.opentrades.entry_id(0) == "172" and not na(lvl172) and close < lvl172
+        if eid == "172" and not na(lvl172) and close < lvl172
             strategy.close_all(comment="lost level")
+        if eid == "1P" and close < vwapVal
+            strategy.close_all(comment="lost VWAP")
     // 9:00 AM CT cutoff — breakout or bailout
     if pastCutoff
         strategy.close_all(comment="window cutoff")

@@ -19,6 +19,11 @@
 //   ▲ 162  (fuchsia) — PM High break with volume, or "162H" =
 //                      hammer defense: price wicked below the PM
 //                      high and closed back above (failed breakdown).
+//   ▲ 1P   (yellow)  — First Pullback (Ross Cameron style): rapid
+//                      impulse up → 1-3 red candles holding the 50%
+//                      retracement → first candle to make a new
+//                      high. Stop = pullback low (red dot), target
+//                      = 2R (green dot). MACD filter optional.
 //   A "+" after the number = 2x+ volume burst (A+ signal).
 //
 // SELL / warning signals (shapes above the bar):
@@ -106,6 +111,39 @@ plotshape(sig162, "162 PM High Go", shape.triangleup,
 plotshape(sig162h, "162H Hammer Defense", shape.triangleup,
      location.belowbar, color.fuchsia, text="162H", size=size.small)
 
+// ── #1P First Pullback (impulse → hold 50% → new high) ──
+runLen    = input.int(5,     "1P: impulse lookback bars", minval=2)
+minRunPct = input.float(2.0, "1P: min impulse move %", step=0.25)
+useMacd   = input.bool(true, "1P: require MACD above signal line")
+
+[macdLine, macdSig, _] = ta.macd(close, 12, 26, 9)
+macdOK = not useMacd or macdLine > macdSig
+
+// Count consecutive red candles ending at the previous bar (1-3 valid)
+red1 = close[1] < open[1]
+red2 = close[2] < open[2]
+red3 = close[3] < open[3]
+red4 = close[4] < open[4]
+redCnt = red1 ? (red2 ? (red3 ? (red4 ? 4 : 3) : 2) : 1) : 0
+
+pLen    = math.max(redCnt, 1)
+pullLow = ta.lowest(low[1],  pLen)            // low of the pullback
+legHigh = ta.highest(high[1], pLen + 1)       // top of the impulse
+legLow  = ta.lowest(low[1],  pLen + runLen)   // where the run started
+runPct  = legLow > 0 ? (legHigh - legLow) / legLow * 100 : 0.0
+holds50 = pullLow > legHigh - 0.5 * (legHigh - legLow)
+
+sigFP = redCnt >= 1 and redCnt <= 3 and runPct >= minRunPct and holds50 and
+     high > high[1] and close > open and close > vwapVal and
+     volBurst and macdOK and gate
+plotshape(sigFP, "1P First Pullback", shape.triangleup,
+     location.belowbar, color.yellow, text="1P", size=size.small)
+// Stop (pullback low) and 2:1 target for the signal bar
+plot(sigFP ? pullLow : na, "1P Stop", color=color.red,
+     style=plot.style_circles, linewidth=3)
+plot(sigFP ? close + 2 * (close - pullLow) : na, "1P 2R Target",
+     color=color.green, style=plot.style_circles, linewidth=3)
+
 // ── SELL / warning signals ──────────────────────────────
 // Lost VWAP on a red candle — setup invalidation, your primary exit
 brokeDown = close < vwapVal and close[1] >= vwapVal[1] and close < open
@@ -121,5 +159,6 @@ plotshape(sellerWick, "Seller Wick", shape.triangledown,
 alertcondition(sig163, "163 VWAP Reclaim", "163 VWAP Reclaim fired (clean body + volume)")
 alertcondition(sig172, "172 Whole-Dollar Hold", "172 Whole-Dollar fired")
 alertcondition(sig162 or sig162h, "162 PM High Go", "162 PM High Retest fired")
+alertcondition(sigFP, "1P First Pullback", "First Pullback fired — held 50%, new high, stop at pullback low")
 alertcondition(brokeDown, "Lost VWAP", "Price lost VWAP — check your exit")
 alertcondition(sellerWick, "Seller Wick", "Long upper wick on volume — consider taking profit")
