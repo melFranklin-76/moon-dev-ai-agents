@@ -39,7 +39,7 @@ def render(tab, *, get_iv_rank, get_earnings_date, get_options_snapshot):
         with rcc1:
             cb_stop   = st.checkbox("Stop-loss defined at −30% premium (hard rule)", key='wizard_cb_stop')
             cb_target = st.checkbox("Targets defined (+15% half, +25% rest)", key='wizard_cb_target')
-            cb_time   = st.checkbox("Time-exit defined (out by 10:00 AM CT if not up +15%)", key='wizard_cb_time')
+            cb_time   = st.checkbox("Time-exit defined (out by 9:00 AM CT if not up +15%)", key='wizard_cb_time')
         with rcc2:
             cb_grade  = st.checkbox("Catalyst Grader is A or A+ for this ticker", key='wizard_cb_grade')
             cb_one    = st.checkbox("This is my ONE trade today",        key='wizard_cb_one')

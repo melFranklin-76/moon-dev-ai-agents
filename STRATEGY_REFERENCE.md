@@ -12,7 +12,7 @@ All are built for $250 cash account, Level 2 options (calls/puts only).
 **Entry:** Buy ATM call after 2nd 1-min candle confirms hold above range high.
 **Stop:** Close back below opening range high OR -30% premium.
 **Target:** +15% first, +25% full exit.
-**Best time:** 9:30–9:45 AM CT only.
+**Best time:** 8:30–8:45 AM CT only.
 
 ### #160 — 1-Minute ORB Fail → VWAP Reject
 **Setup:** Stock breaks opening range high then immediately fails and drops below VWAP.
@@ -152,7 +152,7 @@ All are built for $250 cash account, Level 2 options (calls/puts only).
 ## ⏰ Time-of-Day (178)
 
 ### #178 — Golden-Hour Range Break
-**Setup:** Market has been consolidating for 30–60 min (roughly 10:00–10:30 AM CT). Stock breaks the consolidation range with volume.
+**Setup:** Market has been consolidating for 30–60 min (roughly 9:00–9:30 AM CT). Stock breaks the consolidation range with volume.
 **Entry:** Buy call (upside break) or put (downside break) after breakout candle closes outside the range.
 **Stop:** Candle closes back inside range OR -30% premium.
 **Target:** +25–30%. Range breaks after a consolidation period can trend well.
@@ -163,25 +163,25 @@ All are built for $250 cash account, Level 2 options (calls/puts only).
 
 | # | Name | Direction | Best Time |
 |---|------|-----------|-----------|
-| 159 | 1-min ORB Hold | Both | 9:30–9:45 CT |
-| 160 | ORB Fail → VWAP | Both | 9:30–9:45 CT |
-| 161 | 5-min OR + Flag | Long | 9:30–10:00 CT |
-| 162 | Premarket High Retest | Long | 9:30–9:50 CT |
-| **163** | **VWAP Reclaim** ✅ | **Long** | **9:30–10:00 CT** |
-| 164 | VWAP Rejection | Short | 9:30–10:00 CT |
-| 165 | VWAP Double | Both | 9:30–10:00 CT |
+| 159 | 1-min ORB Hold | Both | 8:30–8:45 CT |
+| 160 | ORB Fail → VWAP | Both | 8:30–8:45 CT |
+| 161 | 5-min OR + Flag | Long | 8:30–9:00 CT |
+| 162 | Premarket High Retest | Long | 8:30–8:50 CT |
+| **163** | **VWAP Reclaim** ✅ | **Long** | **8:30–9:00 CT** |
+| 164 | VWAP Rejection | Short | 8:30–9:00 CT |
+| 165 | VWAP Double | Both | 8:30–9:00 CT |
 | 166 | 9/20 EMA Pullback | Long | Anytime in window |
 | 167 | 9/20 EMA Pullback | Short | Anytime in window |
 | 168 | Higher-Low/Lower-High | Both | Anytime in window |
 | 169 | Stop-Run Reclaim | Long | Anytime in window |
 | 170 | Exhaustion Wick | Both | Anytime in window |
 | 171 | Bollinger Squeeze | Both | Anytime in window |
-| **172** | **Whole-Dollar Break** ✅ | **Long** | **9:30–10:00 CT** |
+| **172** | **Whole-Dollar Break** ✅ | **Long** | **8:30–9:00 CT** |
 | 173 | Half-Dollar Fade | Short | Anytime in window |
 | 174 | POC Reclaim/Loss | Both | Anytime in window |
 | 175 | LVN Slide | Both | Anytime in window |
-| 176 | Index-Lead Sync | Both | 9:30–10:00 CT |
-| **177** | **BTC Sync** ✅ | **Both** | **9:30–10:00 CT** |
-| 178 | Golden-Hour Break | Both | 10:00–10:30 CT |
+| 176 | Index-Lead Sync | Both | 8:30–9:00 CT |
+| **177** | **BTC Sync** ✅ | **Both** | **8:30–9:00 CT** |
+| 178 | Golden-Hour Break | Both | 9:00–9:30 CT |
 
 ✅ = active scanner in Live Scanner tab

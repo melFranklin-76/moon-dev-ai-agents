@@ -152,7 +152,7 @@ def render(tab, *, get_snapshot, get_max_pain, get_rs_vs_spy, get_iv_rank):
 | Exit +15% | Premium × 1.15 |
 | Exit +25% | Premium × 1.25 |
 | Stop loss | −30% premium OR back below VWAP |
-| Window | **9:30 – 9:30 AM CT only** |
+| Window | **8:30 – 9:00 AM CT only** |
                         """)
             else:
                 st.info("Enter a ticker symbol on the left to grade the setup.")

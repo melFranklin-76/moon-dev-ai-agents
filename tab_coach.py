@@ -17,7 +17,7 @@ def render(tab, *, save_tendency, load_tendencies):
             tend_text = st.text_area(
                 "Describe the pattern:",
                 height=120,
-                placeholder="e.g. Held past 9:30 AM CT because I was convinced it would keep running. Lost 30% of premium to theta. Rule: breakout or bailout."
+                placeholder="e.g. Held past 9:00 AM CT because I was convinced it would keep running. Lost 30% of premium to theta. Rule: breakout or bailout."
             )
             if st.button("💾 Save Tendency", type="primary"):
                 if tend_text.strip():
@@ -33,7 +33,7 @@ def render(tab, *, save_tendency, load_tendencies):
                 "Reviewed my tendencies list →",
                 "Setup is A or A+ (Catalyst Grader tab)",
                 "Regime is green or yellow (Regime tab)",
-                "Entry time is before 9:30 AM CT (momentum window)",
+                "Entry time is in the 8:30–9:00 AM CT window (momentum window)",
                 "Options liquidity verified (OI > 200, spread < 10%)",
                 "1 contract only — icebreaker rule",
                 "Stop loss level pre-defined before entry",
@@ -65,7 +65,7 @@ def render(tab, *, save_tendency, load_tendencies):
                 st.info("No tendencies logged yet. After every losing trade, come here and describe what went wrong. This is where your edge gets built.")
                 st.markdown("""
 **Common tendencies to watch for:**
-- Holding past 9:30 AM CT (theta enemy)
+- Holding past 9:00 AM CT (theta enemy)
 - Chasing after missing the first entry
 - Revenge trading after a loss
 - Entering B-grade setups on slow days

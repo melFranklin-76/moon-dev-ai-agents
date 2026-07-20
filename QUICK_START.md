@@ -20,7 +20,7 @@ Opens at `http://localhost:8501`
 
 Sidebar → 💰 Starting Balance → enter your actual Webull balance → Set Balance
 
-## Step 4 — Pre-Market Routine (before 9:00 AM CT)
+## Step 4 — Pre-Market Routine (before 8:30 AM CT open)
 
 1. **Market Regime tab** — Check SPY/QQQ/IWM. Are they above their 20-day MA? Green = trade, red = reduce size or sit out.
 2. **Live Scanner tab** — Run the screener. Add any tickers that fire signals to your watchlist.
@@ -33,10 +33,10 @@ Sidebar → 💰 Starting Balance → enter your actual Webull balance → Set B
 
 ## Step 5 — During the Trade
 
-- Entry window: **9:30 AM CT only** (first 30 minutes of market open in Central Time = 10:30 ET)
+- Entry window: **8:30–9:00 AM CT only** (first 30 minutes after the open = 9:30–10:00 ET)
 - Stop loss fires at **-30% premium** — no exceptions
 - First exit at **+15%** (sell half)
-- Full exit at **+25%** or close by 9:30 AM CT
+- Full exit at **+25%** or close by 9:00 AM CT
 
 ## After the Trade — Log It
 

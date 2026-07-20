@@ -55,7 +55,7 @@ def _bs_price(S, K, T, iv, is_call=True, r=0.0):
 
 def _render_directional(get_max_pain, get_iv_rank):
     st.markdown("### Directional Call / Put — Momentum Setup")
-    st.caption("Use after Catalyst Grader confirms A or A+ grade. Entry window 9:30–9:30 AM CT only.")
+    st.caption("Use after Catalyst Grader confirms A or A+ grade. Entry window 8:30–9:00 AM CT only.")
 
     c1, c2 = st.columns(2)
     with c1:
@@ -150,12 +150,12 @@ def _render_directional(get_max_pain, get_iv_rank):
             <p><strong>Risk/Reward:</strong> {rr:.1f}:1</p>
             </div>""", unsafe_allow_html=True)
 
-            cutoff = datetime.strptime("09:30", "%H:%M").time()
+            cutoff = datetime.strptime("09:00", "%H:%M").time()
             if d_time > cutoff:
-                st.warning(f"⚠️ THETA WARNING: {d_time.strftime('%H:%M')} CT is past the 9:30 AM CT momentum window. Time decay accelerates sharply. Wait for tomorrow's open unless this is an exceptional A+ setup.")
+                st.warning(f"⚠️ THETA WARNING: {d_time.strftime('%H:%M')} CT is past the 9:00 AM CT momentum window. Time decay accelerates sharply. Wait for tomorrow's open unless this is an exceptional A+ setup.")
             else:
                 mins_left = (datetime.combine(date.today(), cutoff) - datetime.combine(date.today(), d_time)).seconds // 60
-                st.success(f"✅ In momentum window — {mins_left} min remaining before 9:30 AM CT cutoff (10:30 ET).")
+                st.success(f"✅ In momentum window — {mins_left} min remaining before 9:00 AM CT cutoff (10:00 ET).")
 
             _render_simulator(d_price, d_prem, d_side, strike)
         else:

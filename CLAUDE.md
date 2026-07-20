@@ -85,17 +85,19 @@ The user is aware of the delay — it is acceptable for a preparation tool.
 
 ---
 
-## The 9 Tabs
+## The 11 Tabs (ordered by daily workflow)
 
-1. **Live Scanner** — #163 VWAP Reclaim, #172 Whole-Dollar, #177 BTC Sync
-2. **My Tickers** — Watchlist cards with Simple/Pro toggle
-3. **Trade Cards** — Strategy reference for strategies 159–178
-4. **Performance** — 10-day challenge, equity curve, daily goal bar
-5. **Journal** — Trade log + Webull CSV import
-6. **Market Regime** — SPY/QQQ/IWM/VIX + sectors + intraday flow
-7. **Catalyst Grader** — SMB 5-check pre-market grading
-8. **Options Planner** — Trade plan + Black-Scholes P&L simulator
-9. **Coach** — Tendencies log + pre-trade checklist
+1. **Scan** — Universe scanner, gap scanner, #163/#172/#177 setup signals
+2. **Market** — SPY/QQQ/IWM/VIX + sectors + intraday flow
+3. **Catalyst** — SMB 5-check pre-market grading
+4. **Tickers** — Watchlist cards with Simple/Pro toggle
+5. **Entry** — Pre-flight decision gate before trade entry
+6. **Options** — Trade plan + Black-Scholes P&L simulator
+7. **Journal** — Trade log + Webull CSV import + auto stop alerts
+8. **Stats** — 10-day challenge, equity curve, daily goal bar
+9. **Plays** — Strategy reference for strategies 159–178
+10. **Coach** — Tendencies log + pre-trade checklist
+11. **IV Scan** — Multi-expiration IV surface fitting
 
 ---
 
@@ -132,16 +134,22 @@ The `get_signal_strength(symbol)` function in helpers computes the composite sco
 
 ## Development Workflow
 
+Use feature branches + pull requests. Never push directly to `main`.
+
 ```bash
 # Syntax check before committing
 python3 -m py_compile small_account_dashboard.py
 python3 -m py_compile small_account_helpers.py
 
-# Commit and push
+# Work on a feature branch
+git checkout -b feature/my-change
 git add small_account_dashboard.py small_account_helpers.py
 git commit -m "description of change"
-git push origin main
+git push -u origin feature/my-change
+# Then create a PR to main for review
 ```
+
+Streamlit Community Cloud auto-deploys when PRs merge to `main`.
 
 ---
 
@@ -159,7 +167,7 @@ git push origin main
 ## Account Context
 
 - $250 starting balance, Webull cash account, Level 2 options
-- Trading window: 9:30–10:00 AM CT (10:30–11:00 AM ET)
+- Trading window: 8:30–9:00 AM CT (9:30–10:00 AM ET) — first 30 min after the open
 - Stop loss: -30% premium (hard rule, no exceptions)
 - Targets: +15% (half exit), +25% (full exit)
 - Max risk per trade: 10–15% of account (1 contract only)

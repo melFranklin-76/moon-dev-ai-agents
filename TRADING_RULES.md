@@ -35,7 +35,7 @@ The dashboard enforces several of these automatically.
 - [ ] Catalyst Grader score: **A or A+ only**
 - [ ] Signal score: **≥ 7/10** in Simple Mode (or green RS + IV CHEAP/FAIR in Pro)
 - [ ] Earnings: **CLEAR or WATCH** — never CAUTION, HIGH RISK, or DANGER
-- [ ] Time: **9:30–10:00 AM CT** (10:30–11:00 AM ET) — momentum window only
+- [ ] Time: **8:30–9:00 AM CT** (9:30–10:00 AM ET) — first 30 min after the open, momentum window only
 - [ ] Volume: stock showing 2x+ relative volume
 - [ ] Price: stock $2–$100
 
@@ -48,7 +48,7 @@ The dashboard enforces several of these automatically.
 | Premium up +15% | Sell half (lock in first win) |
 | Premium up +25% | Sell rest (full exit) |
 | Premium down -30% | Sell everything — no exceptions |
-| 9:30 AM CT passes | Exit if not already up +15% |
+| 9:00 AM CT passes | Exit if not already up +15% |
 | Setup breaks down | Exit immediately — don't wait for stop |
 
 **The -30% stop is automatic discipline.** If you feel like waiting for it to come back, that's hope trading — exit now.
@@ -104,7 +104,7 @@ The dashboard scans for three specific setups:
 | Earnings within 7 days | IV crush kills premium overnight |
 | IV RICH (ratio > 1.4x) | Overpaying — need massive move to profit |
 | RS score < 5 | Stock lagging the market — weak setup |
-| After 9:30 AM CT | Theta decay accelerates, momentum fades |
+| After 9:00 AM CT | Theta decay accelerates, momentum fades |
 | Squeeze score < 25 | No short squeeze catalyst |
 | Spread > 20% | Can't get filled at a fair price |
 | 2nd or 3rd trade on a losing day | Revenge trading — biggest account killer |
