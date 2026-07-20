@@ -52,6 +52,8 @@ try:
         get_volume_spike,
         scan_iv_surface,
         get_rvol,
+        get_premarket_avol,
+        get_chart_check,
     )
 except ImportError:
     def get_options_snapshot(symbol: str) -> dict:   return {"available": False}
@@ -76,6 +78,8 @@ except ImportError:
     def get_volume_spike(symbol: str) -> dict:       return {"available": False}
     def scan_iv_surface(*a, **kw) -> dict:           return {"available": False}
     def get_rvol(symbol: str) -> dict:               return {"available": False}
+    def get_premarket_avol(symbol: str) -> dict:     return {"available": False}
+    def get_chart_check(symbol: str) -> dict:        return {"available": False}
 
 try:
     from streamlit_autorefresh import st_autorefresh as _st_autorefresh
@@ -597,6 +601,8 @@ tab_market.render(tab2,
 tab_catalyst.render(tab3,
     get_snapshot=get_snapshot, get_max_pain=get_max_pain,
     get_rs_vs_spy=get_rs_vs_spy, get_iv_rank=get_iv_rank,
+    get_premarket_avol=get_premarket_avol, get_chart_check=get_chart_check,
+    get_regime_data=get_regime_data,
 )
 
 tab_tickers.render(tab4,
