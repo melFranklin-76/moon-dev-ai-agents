@@ -2,20 +2,48 @@
 import streamlit as st
 
 
-def render(tab, *, get_snapshot, get_max_pain, get_rs_vs_spy, get_iv_rank):
+def render(tab, *, get_snapshot, get_max_pain, get_rs_vs_spy, get_iv_rank,
+           get_premarket_avol, get_chart_check, get_regime_data):
     with tab:
         st.markdown("## 🔍 PRE-MARKET CATALYST GRADER")
-        st.markdown("*SMB 5-check system — run this before every catalyst play*")
+        st.markdown("*SMB 5-check system — checks 1, 3, 5 auto-fill from data; you verify 2 and 4*")
 
         c_left, c_right = st.columns([1, 1])
 
         with c_left:
             ticker_g = st.text_input("Ticker Symbol", value=st.session_state.get('selected_ticker', ''), placeholder="e.g. FSLY", key="grader_ticker").upper().strip()
 
+            # ── Auto-checks from live data ───────────────────────────
+            a1 = get_premarket_avol(ticker_g) if ticker_g else {"available": False}
+            a3 = get_chart_check(ticker_g)    if ticker_g else {"available": False}
+            regime  = get_regime_data()
+            spy_ok  = regime.get('SPY', {}).get('above_ma', False)
+            qqq_ok  = regime.get('QQQ', {}).get('above_ma', False)
+            a5_data = bool(regime)
+            a5_ok   = spy_ok or qqq_ok
+
             st.markdown("#### 5 Checks in Favor")
-            ch1 = st.checkbox("1. Pre-market % AVOL > 20%  *(extended hours vol ÷ 30-day avg daily vol)*")
-            ch2 = st.checkbox("2. Inflection quarter  *(first clean profitable beat + accelerating revenue YoY)*")
-            ch3 = st.checkbox("3. Higher timeframe chart  *(base breakout, room to run, not extended)*")
+
+            ch1 = st.checkbox("1. Pre-market % AVOL > 20%  *(extended hours vol ÷ 30-day avg daily vol)*",
+                              value=bool(a1.get("passed")), key=f"g_ch1_{ticker_g}")
+            if a1.get("available"):
+                _i1 = "✅" if a1['passed'] else "❌"
+                st.caption(f"📊 auto: pre-market vol is **{a1['pct']:.0f}%** of 30-day avg ({a1['pm_vol']:,} vs {a1['avg_vol']:,}) {_i1}")
+            elif ticker_g:
+                st.caption("📊 auto-check unavailable — verify pre-market volume on Webull")
+
+            ch2 = st.checkbox("2. Inflection quarter  *(first clean profitable beat + accelerating revenue YoY)*",
+                              key=f"g_ch2_{ticker_g}")
+            st.caption("🧠 manual — check the last earnings report yourself")
+
+            ch3 = st.checkbox("3. Higher timeframe chart  *(base breakout, room to run, not extended)*",
+                              value=bool(a3.get("passed")), key=f"g_ch3_{ticker_g}")
+            if a3.get("available"):
+                _ma = f"20MA ${a3['sma20']} {'✅' if a3['above20'] else '❌'} · 50MA ${a3['sma50']} {'✅' if a3['above50'] else '❌'}"
+                _ex = f"{'⚠️ extended ' if a3['extended'] else ''}+{a3['ext_pct']:.0f}% vs 20MA · {a3['off_high_pct']:.0f}% off 52w high"
+                st.caption(f"📊 auto: {_ma} · {_ex}")
+            elif ticker_g:
+                st.caption("📊 auto-check unavailable — eyeball the daily chart on TradingView")
 
             theme_sel = st.selectbox("4. Theme alignment", [
                 "✅ AI Infrastructure / Edge Computing",
@@ -28,12 +56,20 @@ def render(tab, *, get_snapshot, get_max_pain, get_rs_vs_spy, get_iv_rank):
             ])
             ch4 = not theme_sel.startswith("❌")
 
-            ch5 = st.checkbox("5. Market environment supports breakouts  *(check Regime tab — green or yellow?)*")
+            ch5 = st.checkbox("5. Market environment supports breakouts  *(SPY or QQQ above 20-day MA)*",
+                              value=a5_ok, key=f"g_ch5_{ticker_g}")
+            if a5_data:
+                _s = "✅" if spy_ok else "❌"
+                _q = "✅" if qqq_ok else "❌"
+                st.caption(f"📊 auto: SPY above 20-day MA {_s} · QQQ above 20-day MA {_q}")
+            else:
+                st.caption("📊 regime data unavailable — check the Market tab")
 
             checks = [ch1, ch2, ch3, ch4, ch5]
             score  = sum(checks)
 
             st.markdown(f"**Checks confirmed: {score} / 5**")
+            st.caption("Auto-filled boxes are suggestions from delayed data — override them if your live chart disagrees.")
 
         with c_right:
             if ticker_g:

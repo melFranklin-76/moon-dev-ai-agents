@@ -1652,3 +1652,79 @@ def get_rvol(symbol: str) -> dict:
         }
     except Exception:
         return {"available": False}
+
+
+@st.cache_data(ttl=120)
+def get_premarket_avol(symbol: str) -> dict:
+    """
+    Catalyst check #1: extended-hours (pre-market) volume as a percent
+    of the 30-day average daily volume.  >= 20% = real catalyst interest.
+    """
+    try:
+        df = yf.Ticker(symbol).history(period="1d", interval="1m", prepost=True)
+        if df.empty:
+            return {"available": False}
+        idx = df.index
+        try:
+            idx = idx.tz_convert("America/New_York")
+        except (TypeError, AttributeError):
+            pass
+        pre_mask = [(t.hour < 9 or (t.hour == 9 and t.minute < 30)) for t in idx]
+        pm_vol = int(df['Volume'][pre_mask].sum())
+
+        hist = yf.Ticker(symbol).history(period="45d", interval="1d")
+        if hist.empty or len(hist) < 10:
+            return {"available": False}
+        avg30 = float(hist['Volume'].iloc[:-1].tail(30).mean())
+        if avg30 <= 0:
+            return {"available": False}
+
+        pct = pm_vol / avg30 * 100
+        return {
+            "available": True,
+            "pm_vol":  pm_vol,
+            "avg_vol": int(avg30),
+            "pct":     round(pct, 1),
+            "passed":  pct >= 20,
+        }
+    except Exception:
+        return {"available": False}
+
+
+@st.cache_data(ttl=600)
+def get_chart_check(symbol: str) -> dict:
+    """
+    Catalyst check #3: daily-chart quality.  Passes when price is above
+    both the 20-day and 50-day MA (uptrend stack) and not parabolic
+    (less than 20% above the 20-day MA = still room to run).
+    """
+    try:
+        df = yf.Ticker(symbol).history(period="1y", interval="1d")
+        if df.empty or len(df) < 60:
+            return {"available": False}
+        close = float(df['Close'].iloc[-1])
+        sma20 = float(df['Close'].rolling(20).mean().iloc[-1])
+        sma50 = float(df['Close'].rolling(50).mean().iloc[-1])
+        hi52  = float(df['High'].max())
+        if sma20 <= 0 or sma50 <= 0 or hi52 <= 0:
+            return {"available": False}
+
+        above20  = close > sma20
+        above50  = close > sma50
+        ext_pct  = (close - sma20) / sma20 * 100
+        extended = ext_pct > 20
+        off_high = (hi52 - close) / hi52 * 100
+        return {
+            "available":    True,
+            "passed":       above20 and above50 and not extended,
+            "above20":      above20,
+            "above50":      above50,
+            "extended":     extended,
+            "ext_pct":      round(ext_pct, 1),
+            "off_high_pct": round(off_high, 1),
+            "sma20":        round(sma20, 2),
+            "sma50":        round(sma50, 2),
+            "close":        round(close, 2),
+        }
+    except Exception:
+        return {"available": False}
