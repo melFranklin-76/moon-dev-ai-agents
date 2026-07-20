@@ -1,0 +1,85 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────
+// Core 3 BACKTEST — #163 VWAP Reclaim + #172 Whole-Dollar Hold
+// Companion strategy for the $250 Small Account Dashboard.
+//
+// PURPOSE: test whether the setups have an edge on YOUR tickers
+// before real money finds out for you. Run it, read the Strategy
+// Tester tab: Percent Profitable = win rate, Profit Factor > 1.3
+// means the edge is real, Avg Trade shows expectancy.
+//
+// Setup:
+//   1. TradingView → Pine Editor → paste → "Add to chart"
+//   2. Use a 1-MINUTE chart (5-min also works and gives more
+//      history — free plans have limited 1-min lookback)
+//   3. Open the "Strategy Tester" tab at the bottom
+//   4. Run it on each ticker you actually trade — an edge on
+//      one stock doesn't transfer to another
+//
+// HONEST LIMITATION: this backtests the STOCK, not your option
+// premium. A same-week ATM call with ~0.5 delta roughly turns a
+// +0.75% stock move into a +15-25% premium move (depends on the
+// stock's price and the premium). The stock target/stop inputs
+// below approximate your +15%/+25% targets and -30% premium stop.
+// What transfers directly: WIN RATE and which setup fires more
+// cleanly on which ticker. What doesn't: exact dollar P&L.
+//
+// Trades only fire inside your window: 8:30-9:00 AM CT
+// (9:30-10:00 ET). Everything force-closes at 9:00 AM CT —
+// your "breakout or bailout" rule.
+// ─────────────────────────────────────────────────────────────────
+strategy("Core 3 Backtest — #163/#172", overlay=true,
+     initial_capital=10000,
+     default_qty_type=strategy.percent_of_equity,
+     default_qty_value=95,
+     process_orders_on_close=true)
+
+// ── Inputs ──────────────────────────────────────────────
+use163    = input.bool(true,  "Test #163 VWAP Reclaim")
+use172    = input.bool(true,  "Test #172 Whole-Dollar Hold")
+volMult   = input.float(1.2,  "Volume burst multiple", step=0.1)
+volLen    = input.int(10,     "Volume average length")
+targetPct = input.float(0.75, "Stock target % (≈ +15-25% premium)", step=0.05)
+stopPct   = input.float(1.0,  "Stock stop % (≈ -30% premium)", step=0.05)
+useInval  = input.bool(true,  "Also exit on setup breakdown (recommended)")
+
+// ── Shared signals (identical to the live indicator) ────
+vwapVal  = ta.vwap(hlc3)
+volBurst = volume > volMult * ta.sma(volume, volLen)
+plot(vwapVal, "VWAP", color=color.orange, linewidth=2)
+
+// Entry window: 9:30-10:00 ET = 8:30-9:00 CT
+inWindow  = not na(time(timeframe.period, "0930-1000", "America/New_York"))
+// Hard cutoff: 10:00 ET = 9:00 CT
+pastCutoff = not na(time(timeframe.period, "1000-1600", "America/New_York"))
+bgcolor(inWindow ? color.new(color.green, 92) : na)
+
+sig163 = close[1] < vwapVal[1] and close > vwapVal and close > open and volBurst
+lvl    = math.floor(close[1])
+sig172 = open[1] < lvl and close[1] > lvl and close > lvl and lvl > 0
+
+// ── Entries (one trade at a time — icebreaker rule) ─────
+var float lvl172 = na
+flat = strategy.position_size == 0
+
+if use163 and sig163 and inWindow and flat
+    strategy.entry("163", strategy.long)
+    lvl172 := na
+if use172 and sig172 and inWindow and flat and not (use163 and sig163)
+    strategy.entry("172", strategy.long)
+    lvl172 := lvl
+
+// ── Exits ───────────────────────────────────────────────
+if strategy.position_size > 0
+    avg = strategy.position_avg_price
+    strategy.exit("tp/sl", limit=avg * (1 + targetPct / 100),
+         stop=avg * (1 - stopPct / 100))
+    // Setup breakdown = primary exit (don't ride to the stop)
+    if useInval
+        if strategy.opentrades.entry_id(0) == "163" and close < vwapVal
+            strategy.close_all(comment="lost VWAP")
+        if strategy.opentrades.entry_id(0) == "172" and not na(lvl172) and close < lvl172
+            strategy.close_all(comment="lost level")
+    // 9:00 AM CT cutoff — breakout or bailout
+    if pastCutoff
+        strategy.close_all(comment="window cutoff")
